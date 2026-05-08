@@ -1,9 +1,10 @@
 import { Download, Upload } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import type { RequirementRecord } from '../../shared/types'
+import type { AuthenticatedUser, RequirementRecord } from '../../shared/types'
 
 interface RequirementsProps {
   requirements: RequirementRecord[]
+  user: AuthenticatedUser
 }
 
 const statusStyles: Record<RequirementRecord['status'], string> = {
@@ -13,7 +14,7 @@ const statusStyles: Record<RequirementRecord['status'], string> = {
   Draft: 'bg-slate-100 text-slate-600'
 }
 
-export function Requirements({ requirements }: RequirementsProps): JSX.Element {
+export function Requirements({ requirements, user }: RequirementsProps): JSX.Element {
   const exportWorkbook = (): void => {
     const worksheet = XLSX.utils.json_to_sheet(requirements)
     const workbook = XLSX.utils.book_new()
@@ -29,8 +30,8 @@ export function Requirements({ requirements }: RequirementsProps): JSX.Element {
     <section className="rounded-3xl bg-white p-6 shadow-sm">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h3 className="text-xl font-bold">Requirements</h3>
-          <p className="mt-1 text-sm text-experian-slate">Mock compliance requirements seeded through SQLite.</p>
+          <h3 className="text-xl font-bold">{user.role === 'Sourcer' ? 'Assigned requirement folders' : 'Requirements'}</h3>
+          <p className="mt-1 text-sm text-experian-slate">{user.role === 'Admin' ? 'All SQLite-backed requirements across Experian Pulse.' : 'Only requirements assigned to your local role queue.'}</p>
         </div>
         <div className="flex gap-3">
           <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-experian-slate" onClick={acknowledgeImport} type="button">
@@ -49,6 +50,7 @@ export function Requirements({ requirements }: RequirementsProps): JSX.Element {
               <th className="px-5 py-4">Requirement</th>
               <th className="px-5 py-4">Owner</th>
               <th className="px-5 py-4">Business unit</th>
+              <th className="px-5 py-4">Folder</th>
               <th className="px-5 py-4">Due date</th>
               <th className="px-5 py-4">Status</th>
             </tr>
@@ -59,6 +61,7 @@ export function Requirements({ requirements }: RequirementsProps): JSX.Element {
                 <td className="px-5 py-4 font-semibold text-experian-ink">{requirement.title}</td>
                 <td className="px-5 py-4 text-experian-slate">{requirement.owner}</td>
                 <td className="px-5 py-4 text-experian-slate">{requirement.businessUnit}</td>
+                <td className="px-5 py-4 text-experian-slate">{requirement.folderName}</td>
                 <td className="px-5 py-4 text-experian-slate">{requirement.dueDate}</td>
                 <td className="px-5 py-4">
                   <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusStyles[requirement.status]}`}>{requirement.status}</span>

@@ -1,22 +1,27 @@
-import { BarChart3, FileSpreadsheet, Gauge, LockKeyhole, Settings, ShieldCheck } from 'lucide-react'
+import { BarChart3, FileSpreadsheet, Gauge, LogOut, Settings, ShieldCheck, UserPlus } from 'lucide-react'
 import type { ReactNode } from 'react'
+import type { AuthenticatedUser, UserRole } from '../../shared/types'
 import type { PageKey } from '../App'
 
-const navigation = [
-  { key: 'login', label: 'Login', icon: LockKeyhole },
-  { key: 'dashboard', label: 'Dashboard', icon: Gauge },
-  { key: 'requirements', label: 'Requirements', icon: ShieldCheck },
-  { key: 'reports', label: 'Reports', icon: BarChart3 },
-  { key: 'settings', label: 'Settings', icon: Settings }
-] as const
+const navigation: Array<{ key: PageKey; label: string; icon: typeof Gauge; roles: UserRole[] }> = [
+  { key: 'dashboard', label: 'Dashboard', icon: Gauge, roles: ['Admin', 'Recruiter'] },
+  { key: 'requirements', label: 'Requirements', icon: ShieldCheck, roles: ['Admin', 'Recruiter', 'Sourcer'] },
+  { key: 'candidates', label: 'Candidates', icon: UserPlus, roles: ['Admin', 'Recruiter', 'Sourcer'] },
+  { key: 'reports', label: 'Reports', icon: BarChart3, roles: ['Admin'] },
+  { key: 'settings', label: 'Settings', icon: Settings, roles: ['Admin'] }
+]
 
 interface LayoutProps {
   activePage: PageKey
   children: ReactNode
+  currentUser: AuthenticatedUser
+  onLogout: () => void
   onNavigate: (page: PageKey) => void
 }
 
-export function Layout({ activePage, children, onNavigate }: LayoutProps): JSX.Element {
+export function Layout({ activePage, children, currentUser, onLogout, onNavigate }: LayoutProps): JSX.Element {
+  const allowedNavigation = navigation.filter((item) => item.roles.includes(currentUser.role))
+
   return (
     <div className="flex min-h-screen bg-experian-mist text-experian-ink">
       <aside className="flex w-72 flex-col border-r border-white/70 bg-white/95 px-5 py-6 shadow-enterprise">
@@ -31,7 +36,7 @@ export function Layout({ activePage, children, onNavigate }: LayoutProps): JSX.E
         </div>
 
         <nav className="space-y-2">
-          {navigation.map(({ key, label, icon: Icon }) => {
+          {allowedNavigation.map(({ key, label, icon: Icon }) => {
             const selected = activePage === key
             return (
               <button
@@ -51,11 +56,21 @@ export function Layout({ activePage, children, onNavigate }: LayoutProps): JSX.E
           })}
         </nav>
 
-        <div className="mt-auto rounded-3xl bg-gradient-to-br from-experian-purple to-experian-blue p-5 text-white">
-          <p className="text-sm font-semibold">Foundation build</p>
-          <p className="mt-2 text-xs leading-5 text-white/80">
-            Mock data, SQLite wiring, Excel-ready dependencies, and enterprise navigation are ready for feature work.
-          </p>
+        <div className="mt-auto space-y-3">
+          <div className="rounded-3xl bg-gradient-to-br from-experian-purple to-experian-blue p-5 text-white">
+            <p className="text-sm font-semibold">Signed in as {currentUser.displayName}</p>
+            <p className="mt-2 text-xs leading-5 text-white/80">
+              {currentUser.role} access limits navigation and data to the modules assigned for this local workspace.
+            </p>
+          </div>
+          <button
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-experian-slate transition hover:border-experian-magenta/40 hover:text-experian-magenta"
+            onClick={onLogout}
+            type="button"
+          >
+            <LogOut size={17} />
+            Log out
+          </button>
         </div>
       </aside>
 
@@ -66,8 +81,8 @@ export function Layout({ activePage, children, onNavigate }: LayoutProps): JSX.E
             <h2 className="mt-1 text-2xl font-bold">Experian Pulse command center</h2>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
-            <p className="text-xs font-semibold text-experian-slate">Environment</p>
-            <p className="text-sm font-bold text-experian-ink">Local desktop</p>
+            <p className="text-xs font-semibold text-experian-slate">Role</p>
+            <p className="text-sm font-bold text-experian-ink">{currentUser.role}</p>
           </div>
         </header>
         {children}
