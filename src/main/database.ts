@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import type { AuthenticatedUser, CandidateRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementRecord, UserRole } from '../shared/types'
+import type { AuthenticatedUser, CandidateRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementRecord, UserRole } from '../shared/types'
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,46 +15,66 @@ const defaultUsers: Array<{ username: string; password: string; role: UserRole; 
   { username: 'sourcer', password: 'sourcer123', role: 'Sourcer', displayName: 'Sourcer User' }
 ]
 
-const mockRequirements: Omit<RequirementRecord, 'id'>[] = [
+const mockRequirements: RequirementInput[] = [
   {
-    title: 'Quarterly access attestation',
-    owner: 'Identity Governance',
-    status: 'In Review',
-    dueDate: '2026-06-15',
+    reqId: 'REQ-2026-001',
+    roleTitle: 'Senior Risk Analyst',
     businessUnit: 'Enterprise Risk',
-    folderName: 'Enterprise Risk / Q2 Attestation',
-    assignedRecruiter: 'recruiter',
-    assignedSourcer: 'sourcer'
+    hiringManager: 'Priya Raman',
+    grade: 'G7',
+    location: 'Costa Mesa, CA',
+    workMode: 'Hybrid',
+    budgetRange: '$120k - $145k',
+    priority: 'High',
+    targetClosureDate: '2026-06-15',
+    recruiterOwner: 'recruiter',
+    assignedSourcer: 'sourcer',
+    status: 'Open'
   },
   {
-    title: 'Vendor control evidence pack',
-    owner: 'Third Party Risk',
-    status: 'At Risk',
-    dueDate: '2026-05-28',
+    reqId: 'REQ-2026-002',
+    roleTitle: 'Procurement Controls Lead',
     businessUnit: 'Procurement',
-    folderName: 'Procurement / Vendor Controls',
-    assignedRecruiter: 'recruiter',
-    assignedSourcer: 'sourcer'
+    hiringManager: 'Marcus Lee',
+    grade: 'G6',
+    location: 'Allen, TX',
+    workMode: 'Remote',
+    budgetRange: '$105k - $128k',
+    priority: 'Critical',
+    targetClosureDate: '2026-05-28',
+    recruiterOwner: 'recruiter',
+    assignedSourcer: 'sourcer',
+    status: 'Open'
   },
   {
-    title: 'Customer data retention review',
-    owner: 'Data Protection Office',
-    status: 'Complete',
-    dueDate: '2026-05-03',
+    reqId: 'REQ-2026-003',
+    roleTitle: 'Data Retention Specialist',
     businessUnit: 'Consumer Services',
-    folderName: 'Consumer Services / Retention',
-    assignedRecruiter: 'admin',
-    assignedSourcer: 'admin'
+    hiringManager: 'Elena Brooks',
+    grade: 'G5',
+    location: 'New York, NY',
+    workMode: 'Onsite',
+    budgetRange: '$88k - $102k',
+    priority: 'Medium',
+    targetClosureDate: '2026-05-03',
+    recruiterOwner: 'admin',
+    assignedSourcer: 'admin',
+    status: 'Closed'
   },
   {
-    title: 'Incident response tabletop plan',
-    owner: 'Cyber Resilience',
-    status: 'Draft',
-    dueDate: '2026-07-02',
+    reqId: 'REQ-2026-004',
+    roleTitle: 'Incident Response Manager',
     businessUnit: 'Security Operations',
-    folderName: 'Security Operations / Incident Response',
-    assignedRecruiter: 'admin',
-    assignedSourcer: 'sourcer'
+    hiringManager: 'Noah Patel',
+    grade: 'G8',
+    location: 'Schaumburg, IL',
+    workMode: 'Hybrid',
+    budgetRange: '$140k - $165k',
+    priority: 'High',
+    targetClosureDate: '2026-07-02',
+    recruiterOwner: 'admin',
+    assignedSourcer: 'sourcer',
+    status: 'On Hold'
   }
 ]
 
@@ -62,7 +82,7 @@ const mockCandidates: Omit<CandidateRecord, 'id'>[] = [
   {
     name: 'Avery Johnson',
     requirementId: 1,
-    requirementTitle: 'Quarterly access attestation',
+    requirementTitle: 'Senior Risk Analyst',
     stage: 'Recruiter screen',
     updatedAt: '2026-05-07',
     assignedRecruiter: 'recruiter',
@@ -71,7 +91,7 @@ const mockCandidates: Omit<CandidateRecord, 'id'>[] = [
   {
     name: 'Morgan Smith',
     requirementId: 2,
-    requirementTitle: 'Vendor control evidence pack',
+    requirementTitle: 'Procurement Controls Lead',
     stage: 'Submitted',
     updatedAt: '2026-05-06',
     assignedRecruiter: 'recruiter',
@@ -80,7 +100,7 @@ const mockCandidates: Omit<CandidateRecord, 'id'>[] = [
   {
     name: 'Riley Chen',
     requirementId: 4,
-    requirementTitle: 'Incident response tabletop plan',
+    requirementTitle: 'Incident Response Manager',
     stage: 'Sourcing',
     updatedAt: '2026-05-04',
     assignedRecruiter: 'admin',
@@ -150,14 +170,19 @@ function initialiseSchema(database: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS requirements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      owner TEXT NOT NULL,
-      status TEXT NOT NULL,
-      dueDate TEXT NOT NULL,
+      reqId TEXT NOT NULL UNIQUE,
+      roleTitle TEXT NOT NULL,
       businessUnit TEXT NOT NULL,
-      folderName TEXT NOT NULL DEFAULT 'General',
-      assignedRecruiter TEXT NOT NULL DEFAULT 'recruiter',
-      assignedSourcer TEXT NOT NULL DEFAULT 'sourcer'
+      hiringManager TEXT NOT NULL,
+      grade TEXT NOT NULL,
+      location TEXT NOT NULL,
+      workMode TEXT NOT NULL CHECK (workMode IN ('Onsite', 'Hybrid', 'Remote')),
+      budgetRange TEXT NOT NULL,
+      priority TEXT NOT NULL CHECK (priority IN ('Low', 'Medium', 'High', 'Critical')),
+      targetClosureDate TEXT NOT NULL,
+      recruiterOwner TEXT NOT NULL,
+      assignedSourcer TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('Open', 'On Hold', 'Closed', 'Cancelled'))
     );
 
     CREATE TABLE IF NOT EXISTS candidates (
@@ -187,9 +212,63 @@ function initialiseSchema(database: Database.Database): void {
     );
   `)
 
-  addColumnIfMissing(database, 'requirements', 'folderName', "TEXT NOT NULL DEFAULT 'General'")
-  addColumnIfMissing(database, 'requirements', 'assignedRecruiter', "TEXT NOT NULL DEFAULT 'recruiter'")
+  addColumnIfMissing(database, 'requirements', 'reqId', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'roleTitle', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'hiringManager', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'grade', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'location', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'workMode', "TEXT NOT NULL DEFAULT 'Hybrid'")
+  addColumnIfMissing(database, 'requirements', 'budgetRange', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'priority', "TEXT NOT NULL DEFAULT 'Medium'")
+  addColumnIfMissing(database, 'requirements', 'targetClosureDate', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'recruiterOwner', "TEXT NOT NULL DEFAULT 'recruiter'")
   addColumnIfMissing(database, 'requirements', 'assignedSourcer', "TEXT NOT NULL DEFAULT 'sourcer'")
+  addColumnIfMissing(database, 'requirements', 'status', "TEXT NOT NULL DEFAULT 'Open'")
+  migrateLegacyRequirements(database)
+}
+
+function migrateLegacyRequirements(database: Database.Database): void {
+  const rows = database.prepare('SELECT * FROM requirements').all() as Array<Record<string, string | number>>
+  const updateRequirement = database.prepare(`
+    UPDATE requirements
+    SET reqId = @reqId,
+        roleTitle = @roleTitle,
+        businessUnit = @businessUnit,
+        hiringManager = @hiringManager,
+        grade = @grade,
+        location = @location,
+        workMode = @workMode,
+        budgetRange = @budgetRange,
+        priority = @priority,
+        targetClosureDate = @targetClosureDate,
+        recruiterOwner = @recruiterOwner,
+        assignedSourcer = @assignedSourcer,
+        status = @status
+    WHERE id = @id
+  `)
+
+  rows.forEach((row) => {
+    if (String(row.reqId ?? '').trim() && String(row.roleTitle ?? '').trim()) {
+      return
+    }
+
+    updateRequirement.run({
+      id: row.id,
+      reqId: `REQ-LEGACY-${String(row.id).padStart(3, '0')}`,
+      roleTitle: row.title || 'Untitled Requirement',
+      businessUnit: row.businessUnit || 'General',
+      hiringManager: row.owner || 'Unassigned Manager',
+      grade: 'G5',
+      location: 'United States',
+      workMode: 'Hybrid',
+      budgetRange: 'TBD',
+      priority: row.status === 'At Risk' ? 'High' : 'Medium',
+      targetClosureDate: row.dueDate || '2026-06-30',
+      recruiterOwner: row.assignedRecruiter || 'recruiter',
+      assignedSourcer: row.assignedSourcer || 'sourcer',
+      status: row.status === 'Complete' ? 'Closed' : 'Open'
+    })
+  })
 }
 
 function seedMockData(database: Database.Database): void {
@@ -208,8 +287,8 @@ function seedMockData(database: Database.Database): void {
   const requirementCount = database.prepare('SELECT COUNT(*) as count FROM requirements').get() as { count: number }
   if (requirementCount.count === 0) {
     const insertRequirement = database.prepare(`
-      INSERT INTO requirements (title, owner, status, dueDate, businessUnit, folderName, assignedRecruiter, assignedSourcer)
-      VALUES (@title, @owner, @status, @dueDate, @businessUnit, @folderName, @assignedRecruiter, @assignedSourcer)
+      INSERT INTO requirements (reqId, roleTitle, businessUnit, hiringManager, grade, location, workMode, budgetRange, priority, targetClosureDate, recruiterOwner, assignedSourcer, status)
+      VALUES (@reqId, @roleTitle, @businessUnit, @hiringManager, @grade, @location, @workMode, @budgetRange, @priority, @targetClosureDate, @recruiterOwner, @assignedSourcer, @status)
     `)
     const insertMany = database.transaction((requirements: typeof mockRequirements) => {
       requirements.forEach((requirement) => insertRequirement.run(requirement))
@@ -263,21 +342,119 @@ export function authenticateUser(username: string, password: string): LoginResul
   return { success: true, user }
 }
 
-function filterByUser<T extends { assignedRecruiter: string; assignedSourcer: string }>(items: T[], user?: AuthenticatedUser): T[] {
+function filterByUser<T extends { recruiterOwner?: string; assignedRecruiter?: string; assignedSourcer: string }>(items: T[], user?: AuthenticatedUser): T[] {
   if (!user || user.role === 'Admin') {
     return items
   }
 
   if (user.role === 'Recruiter') {
-    return items.filter((item) => item.assignedRecruiter === user.username)
+    return items.filter((item) => (item.recruiterOwner ?? item.assignedRecruiter) === user.username)
   }
 
   return items.filter((item) => item.assignedSourcer === user.username)
 }
 
+function normalizeRequirementInput(input: RequirementInput, user?: AuthenticatedUser): RequirementInput {
+  return {
+    reqId: input.reqId.trim(),
+    roleTitle: input.roleTitle.trim(),
+    businessUnit: input.businessUnit.trim(),
+    hiringManager: input.hiringManager.trim(),
+    grade: input.grade.trim(),
+    location: input.location.trim(),
+    workMode: input.workMode,
+    budgetRange: input.budgetRange.trim(),
+    priority: input.priority,
+    targetClosureDate: input.targetClosureDate,
+    recruiterOwner: input.recruiterOwner.trim() || user?.username || 'recruiter',
+    assignedSourcer: input.assignedSourcer.trim() || 'sourcer',
+    status: input.status
+  }
+}
+
+function assertCanManageRequirements(user?: AuthenticatedUser): void {
+  if (!user || (user.role !== 'Admin' && user.role !== 'Recruiter')) {
+    throw new Error('Only admins and recruiters can manage requirements.')
+  }
+}
+
+function assertRequirementInput(input: RequirementInput): void {
+  const requiredFields: Array<keyof RequirementInput> = [
+    'reqId',
+    'roleTitle',
+    'businessUnit',
+    'hiringManager',
+    'grade',
+    'location',
+    'workMode',
+    'budgetRange',
+    'priority',
+    'targetClosureDate',
+    'recruiterOwner',
+    'assignedSourcer',
+    'status'
+  ]
+
+  requiredFields.forEach((field) => {
+    if (!String(input[field]).trim()) {
+      throw new Error(`Missing required field: ${field}`)
+    }
+  })
+}
+
+export function createRequirement(input: RequirementInput, user?: AuthenticatedUser): RequirementRecord {
+  assertCanManageRequirements(user)
+  const database = connectDatabase()
+  const requirement = normalizeRequirementInput(input, user)
+  assertRequirementInput(requirement)
+
+  const result = database
+    .prepare(
+      `INSERT INTO requirements (reqId, roleTitle, businessUnit, hiringManager, grade, location, workMode, budgetRange, priority, targetClosureDate, recruiterOwner, assignedSourcer, status)
+       VALUES (@reqId, @roleTitle, @businessUnit, @hiringManager, @grade, @location, @workMode, @budgetRange, @priority, @targetClosureDate, @recruiterOwner, @assignedSourcer, @status)`
+    )
+    .run(requirement) as { lastInsertRowid: number | bigint }
+
+  return database.prepare('SELECT * FROM requirements WHERE id = ?').get(result.lastInsertRowid) as RequirementRecord
+}
+
+export function updateRequirement(id: number, input: RequirementInput, user?: AuthenticatedUser): RequirementRecord {
+  assertCanManageRequirements(user)
+  const database = connectDatabase()
+  const requirement = normalizeRequirementInput(input, user)
+  assertRequirementInput(requirement)
+
+  database
+    .prepare(
+      `UPDATE requirements
+       SET reqId = @reqId,
+           roleTitle = @roleTitle,
+           businessUnit = @businessUnit,
+           hiringManager = @hiringManager,
+           grade = @grade,
+           location = @location,
+           workMode = @workMode,
+           budgetRange = @budgetRange,
+           priority = @priority,
+           targetClosureDate = @targetClosureDate,
+           recruiterOwner = @recruiterOwner,
+           assignedSourcer = @assignedSourcer,
+           status = @status
+       WHERE id = @id`
+    )
+    .run({ ...requirement, id })
+
+  const updatedRequirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord | undefined
+  if (!updatedRequirement) {
+    throw new Error('Requirement not found.')
+  }
+
+  return updatedRequirement
+}
+
 export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   const database = connectDatabase()
-  const allRequirements = database.prepare('SELECT * FROM requirements ORDER BY dueDate ASC').all() as RequirementRecord[]
+  const allRequirements = database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[]
   const allCandidates = database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as CandidateRecord[]
   const reports = database.prepare('SELECT * FROM reports ORDER BY updatedAt DESC').all() as ReportRecord[]
   const settingsRow = database.prepare('SELECT * FROM settings WHERE id = 1').get() as {
@@ -288,8 +465,8 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
 
   const requirements = filterByUser(allRequirements, user)
   const candidates = filterByUser(allCandidates, user)
-  const openRequirements = requirements.filter((item) => item.status !== 'Complete').length
-  const riskItems = requirements.filter((item) => item.status === 'At Risk').length
+  const openRequirements = requirements.filter((item) => item.status === 'Open').length
+  const riskItems = requirements.filter((item) => item.priority === 'Critical' || item.status === 'On Hold').length
 
   return {
     requirements,

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { authenticateUser, closeDatabase, connectDatabase, getPulseSnapshot } from './database'
+import { authenticateUser, closeDatabase, connectDatabase, createRequirement, getPulseSnapshot, updateRequirement } from './database'
+import type { RequirementInput } from '../shared/types'
 
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
 let currentUser: ReturnType<typeof authenticateUser>['user']
@@ -41,6 +42,10 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('pulse:getSnapshot', () => getPulseSnapshot(currentUser))
+  ipcMain.handle('requirements:create', (_event, requirement: RequirementInput) => createRequirement(requirement, currentUser))
+  ipcMain.handle('requirements:update', (_event, payload: { id: number; requirement: RequirementInput }) =>
+    updateRequirement(payload.id, payload.requirement, currentUser)
+  )
   createWindow()
 
   app.on('activate', () => {

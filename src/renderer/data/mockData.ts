@@ -7,10 +7,10 @@ export const complianceTrend = [
 ]
 
 export const riskDistribution = [
-  { name: 'Complete', value: 42 },
-  { name: 'In Review', value: 31 },
-  { name: 'At Risk', value: 12 },
-  { name: 'Draft', value: 15 }
+  { name: 'Open', value: 42 },
+  { name: 'On Hold', value: 12 },
+  { name: 'Closed', value: 31 },
+  { name: 'Cancelled', value: 15 }
 ]
 
 export const reportActivity = [

@@ -37,7 +37,7 @@ export function Candidates({ candidates, requirements, user }: CandidatesProps):
               Requirement folder
               <select className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4">
                 {requirements.map((requirement) => (
-                  <option key={requirement.id}>{requirement.folderName}</option>
+                  <option key={requirement.id}>{requirement.reqId} · {requirement.roleTitle}</option>
                 ))}
               </select>
             </label>
@@ -76,8 +76,8 @@ export function Candidates({ candidates, requirements, user }: CandidatesProps):
         <div className="mt-5 space-y-3">
           {requirements.map((requirement) => (
             <div className="rounded-2xl border border-slate-100 p-4" key={requirement.id}>
-              <p className="text-sm font-bold">{requirement.folderName}</p>
-              <p className="mt-1 text-xs text-experian-slate">{requirement.title}</p>
+              <p className="text-sm font-bold">{requirement.reqId} · {requirement.roleTitle}</p>
+              <p className="mt-1 text-xs text-experian-slate">{requirement.businessUnit} · {requirement.hiringManager}</p>
             </div>
           ))}
         </div>
