@@ -14,25 +14,35 @@ const fallbackSnapshot: PulseSnapshot = {
   requirements: [
     {
       id: 1,
-      title: 'Quarterly access attestation',
-      owner: 'Identity Governance',
-      status: 'In Review',
-      dueDate: '2026-06-15',
+      reqId: 'REQ-2026-001',
+      roleTitle: 'Senior Risk Analyst',
       businessUnit: 'Enterprise Risk',
-      folderName: 'Enterprise Risk / Q2 Attestation',
-      assignedRecruiter: 'recruiter',
-      assignedSourcer: 'sourcer'
+      hiringManager: 'Priya Raman',
+      grade: 'G7',
+      location: 'Costa Mesa, CA',
+      workMode: 'Hybrid',
+      budgetRange: '$120k - $145k',
+      priority: 'High',
+      targetClosureDate: '2026-06-15',
+      recruiterOwner: 'recruiter',
+      assignedSourcer: 'sourcer',
+      status: 'Open'
     },
     {
       id: 2,
-      title: 'Vendor control evidence pack',
-      owner: 'Third Party Risk',
-      status: 'At Risk',
-      dueDate: '2026-05-28',
+      reqId: 'REQ-2026-002',
+      roleTitle: 'Procurement Controls Lead',
       businessUnit: 'Procurement',
-      folderName: 'Procurement / Vendor Controls',
-      assignedRecruiter: 'recruiter',
-      assignedSourcer: 'sourcer'
+      hiringManager: 'Marcus Lee',
+      grade: 'G6',
+      location: 'Allen, TX',
+      workMode: 'Remote',
+      budgetRange: '$105k - $128k',
+      priority: 'Critical',
+      targetClosureDate: '2026-05-28',
+      recruiterOwner: 'recruiter',
+      assignedSourcer: 'sourcer',
+      status: 'Open'
     }
   ],
   candidates: [
@@ -40,7 +50,7 @@ const fallbackSnapshot: PulseSnapshot = {
       id: 1,
       name: 'Avery Johnson',
       requirementId: 1,
-      requirementTitle: 'Quarterly access attestation',
+      requirementTitle: 'Senior Risk Analyst',
       stage: 'Recruiter screen',
       updatedAt: '2026-05-07',
       assignedRecruiter: 'recruiter',
@@ -83,7 +93,7 @@ function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<PulseSnapshot>(fallbackSnapshot)
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser | undefined>()
 
-  useEffect(() => {
+  const refreshSnapshot = (): void => {
     if (!currentUser) {
       return
     }
@@ -92,6 +102,10 @@ function App(): JSX.Element {
       ?.getSnapshot(currentUser)
       .then(setSnapshot)
       .catch(() => setSnapshot(fallbackSnapshot))
+  }
+
+  useEffect(() => {
+    refreshSnapshot()
   }, [currentUser])
 
   const handleLogin = (user: AuthenticatedUser): void => {
@@ -112,7 +126,7 @@ function App(): JSX.Element {
 
     switch (activePage) {
       case 'requirements':
-        return <Requirements requirements={snapshot.requirements} user={currentUser} />
+        return <Requirements onRequirementsChange={refreshSnapshot} requirements={snapshot.requirements} user={currentUser} />
       case 'candidates':
         return <Candidates candidates={snapshot.candidates} requirements={snapshot.requirements} user={currentUser} />
       case 'reports':

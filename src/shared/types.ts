@@ -1,4 +1,6 @@
-export type RequirementStatus = 'Complete' | 'In Review' | 'At Risk' | 'Draft'
+export type RequirementStatus = 'Open' | 'On Hold' | 'Closed' | 'Cancelled'
+export type RequirementPriority = 'Low' | 'Medium' | 'High' | 'Critical'
+export type WorkMode = 'Onsite' | 'Hybrid' | 'Remote'
 export type UserRole = 'Admin' | 'Recruiter' | 'Sourcer'
 
 export interface AuthenticatedUser {
@@ -16,15 +18,22 @@ export interface LoginResult {
 
 export interface RequirementRecord {
   id: number
-  title: string
-  owner: string
-  status: RequirementStatus
-  dueDate: string
+  reqId: string
+  roleTitle: string
   businessUnit: string
-  folderName: string
-  assignedRecruiter: string
+  hiringManager: string
+  grade: string
+  location: string
+  workMode: WorkMode
+  budgetRange: string
+  priority: RequirementPriority
+  targetClosureDate: string
+  recruiterOwner: string
   assignedSourcer: string
+  status: RequirementStatus
 }
+
+export type RequirementInput = Omit<RequirementRecord, 'id'>
 
 export interface CandidateRecord {
   id: number
