@@ -1,9 +1,11 @@
-import type { PulseSnapshot } from '../../shared/types'
+import type { AuthenticatedUser, LoginResult, PulseSnapshot } from '../../shared/types'
 
 declare global {
   interface Window {
     experianPulse: {
-      getSnapshot: () => Promise<PulseSnapshot>
+      login: (username: string, password: string) => Promise<LoginResult>
+      logout: () => Promise<boolean>
+      getSnapshot: (user?: AuthenticatedUser) => Promise<PulseSnapshot>
     }
   }
 }

@@ -1,16 +1,17 @@
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { complianceTrend, reportActivity } from '../data/mockData'
-import type { PulseSnapshot } from '../../shared/types'
+import type { AuthenticatedUser, PulseSnapshot } from '../../shared/types'
 
 interface DashboardProps {
   snapshot: PulseSnapshot
+  user: AuthenticatedUser
 }
 
-export function Dashboard({ snapshot }: DashboardProps): JSX.Element {
+export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
   const cards = [
     { label: 'Compliance score', value: `${snapshot.metrics.complianceScore}%`, accent: 'text-experian-purple' },
     { label: 'Open requirements', value: snapshot.metrics.openRequirements, accent: 'text-experian-blue' },
-    { label: 'Reports generated', value: snapshot.metrics.reportsGenerated, accent: 'text-experian-magenta' },
+    { label: user.role === 'Admin' ? 'Reports generated' : 'Assigned candidates', value: user.role === 'Admin' ? snapshot.metrics.reportsGenerated : snapshot.metrics.activeCandidates, accent: 'text-experian-magenta' },
     { label: 'Risk items', value: snapshot.metrics.riskItems, accent: 'text-amber-600' }
   ]
 
@@ -28,7 +29,7 @@ export function Dashboard({ snapshot }: DashboardProps): JSX.Element {
       <section className="grid grid-cols-2 gap-6">
         <article className="rounded-3xl bg-white p-6 shadow-sm">
           <h3 className="text-lg font-bold">Compliance trend</h3>
-          <p className="mb-6 mt-1 text-sm text-experian-slate">Mock score progression for the current operating period.</p>
+          <p className="mb-6 mt-1 text-sm text-experian-slate">Score progression for the current operating period, scoped to the signed-in role.</p>
           <div className="h-72">
             <ResponsiveContainer>
               <AreaChart data={complianceTrend}>

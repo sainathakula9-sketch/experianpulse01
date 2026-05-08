@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { connectDatabase, closeDatabase, getPulseSnapshot } from './database'
+import { authenticateUser, closeDatabase, connectDatabase, getPulseSnapshot } from './database'
 
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
+let currentUser: ReturnType<typeof authenticateUser>['user']
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -30,7 +31,16 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   connectDatabase()
-  ipcMain.handle('pulse:getSnapshot', () => getPulseSnapshot())
+  ipcMain.handle('auth:login', (_event, credentials: { username: string; password: string }) => {
+    const result = authenticateUser(credentials.username, credentials.password)
+    currentUser = result.user
+    return result
+  })
+  ipcMain.handle('auth:logout', () => {
+    currentUser = undefined
+    return true
+  })
+  ipcMain.handle('pulse:getSnapshot', () => getPulseSnapshot(currentUser))
   createWindow()
 
   app.on('activate', () => {
