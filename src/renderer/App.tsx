@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout } from './components/Layout'
 import { AuditTrail } from './pages/AuditTrail'
+import { AiAssistant } from './pages/AiAssistant'
 import { Candidates } from './pages/Candidates'
 import { Dashboard } from './pages/Dashboard'
 import { Login } from './pages/Login'
@@ -9,7 +10,7 @@ import { Requirements } from './pages/Requirements'
 import { SettingsPage } from './pages/Settings'
 import type { AuthenticatedUser, PulseSnapshot } from '../shared/types'
 
-export type PageKey = 'dashboard' | 'requirements' | 'candidates' | 'reports' | 'audit' | 'settings'
+export type PageKey = 'dashboard' | 'requirements' | 'candidates' | 'ai-assistant' | 'reports' | 'audit' | 'settings'
 
 const fallbackSnapshot: PulseSnapshot = {
   requirements: [
@@ -189,6 +190,8 @@ function App(): JSX.Element {
         return <Requirements candidates={snapshot.candidates} onRequirementsChange={refreshSnapshot} requirements={snapshot.requirements} user={currentUser} />
       case 'candidates':
         return <Candidates candidates={snapshot.candidates} onCandidatesChange={refreshSnapshot} requirements={snapshot.requirements} settings={snapshot.settings} user={currentUser} />
+      case 'ai-assistant':
+        return <AiAssistant snapshot={snapshot} />
       case 'reports':
         return <Reports reports={snapshot.reports} />
       case 'audit':
