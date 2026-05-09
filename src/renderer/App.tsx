@@ -26,7 +26,9 @@ const fallbackSnapshot: PulseSnapshot = {
       targetClosureDate: '2026-06-15',
       recruiterOwner: 'recruiter',
       assignedSourcer: 'sourcer',
-      status: 'Open'
+      status: 'Open',
+      createdAt: '2026-04-01T09:00:00.000Z',
+      closedAt: ''
     },
     {
       id: 2,
@@ -42,7 +44,9 @@ const fallbackSnapshot: PulseSnapshot = {
       targetClosureDate: '2026-05-28',
       recruiterOwner: 'recruiter',
       assignedSourcer: 'sourcer',
-      status: 'Open'
+      status: 'Open',
+      createdAt: '2026-04-09T09:00:00.000Z',
+      closedAt: ''
     }
   ],
   candidates: [
@@ -109,7 +113,17 @@ const fallbackSnapshot: PulseSnapshot = {
     openRequirements: 2,
     reportsGenerated: 1,
     riskItems: 1,
-    activeCandidates: 1
+    activeCandidates: 1,
+    profilesSourced: 1,
+    contacted: 1,
+    interested: 1,
+    screenShortlisted: 1,
+    interviewsScheduled: 0,
+    offersReleased: 0,
+    offersAccepted: 0,
+    joined: 0,
+    offerDrops: 0,
+    averageDaysToClose: 0
   }
 }
 

@@ -251,7 +251,9 @@ function initialiseSchema(database: Database.Database): void {
       targetClosureDate TEXT NOT NULL,
       recruiterOwner TEXT NOT NULL,
       assignedSourcer TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('Open', 'On Hold', 'Closed', 'Cancelled'))
+      status TEXT NOT NULL CHECK (status IN ('Open', 'On Hold', 'Closed', 'Cancelled')),
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      closedAt TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS requirement_intake (
@@ -363,6 +365,8 @@ function initialiseSchema(database: Database.Database): void {
   addColumnIfMissing(database, 'requirements', 'recruiterOwner', "TEXT NOT NULL DEFAULT 'recruiter'")
   addColumnIfMissing(database, 'requirements', 'assignedSourcer', "TEXT NOT NULL DEFAULT 'sourcer'")
   addColumnIfMissing(database, 'requirements', 'status', "TEXT NOT NULL DEFAULT 'Open'")
+  addColumnIfMissing(database, 'requirements', 'createdAt', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'requirements', 'closedAt', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'candidates', 'requirementTitle', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'candidates', 'currentCompany', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'candidates', 'currentTitle', "TEXT NOT NULL DEFAULT ''")
@@ -387,6 +391,7 @@ function initialiseSchema(database: Database.Database): void {
   addColumnIfMissing(database, 'candidates', 'remarks', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'candidates', 'followUpDate', "TEXT NOT NULL DEFAULT ''")
   migrateLegacyRequirements(database)
+  migrateRequirementLifecycleDates(database)
   migrateLegacyCandidates(database)
 }
 
@@ -432,6 +437,26 @@ function migrateLegacyRequirements(database: Database.Database): void {
       status: row.status === 'Complete' ? 'Closed' : 'Open'
     })
   })
+}
+
+
+function migrateRequirementLifecycleDates(database: Database.Database): void {
+  const now = new Date().toISOString()
+  database
+    .prepare(
+      `UPDATE requirements
+       SET createdAt = @createdAt
+       WHERE createdAt = '' OR createdAt IS NULL`
+    )
+    .run({ createdAt: now })
+
+  database
+    .prepare(
+      `UPDATE requirements
+       SET closedAt = @closedAt
+       WHERE status = 'Closed' AND (closedAt = '' OR closedAt IS NULL)`
+    )
+    .run({ closedAt: now })
 }
 
 function migrateLegacyCandidates(database: Database.Database): void {
@@ -504,11 +529,15 @@ function seedMockData(database: Database.Database): void {
   const requirementCount = database.prepare('SELECT COUNT(*) as count FROM requirements').get() as { count: number }
   if (requirementCount.count === 0) {
     const insertRequirement = database.prepare(`
-      INSERT INTO requirements (reqId, roleTitle, businessUnit, hiringManager, grade, location, workMode, budgetRange, priority, targetClosureDate, recruiterOwner, assignedSourcer, status)
-      VALUES (@reqId, @roleTitle, @businessUnit, @hiringManager, @grade, @location, @workMode, @budgetRange, @priority, @targetClosureDate, @recruiterOwner, @assignedSourcer, @status)
+      INSERT INTO requirements (reqId, roleTitle, businessUnit, hiringManager, grade, location, workMode, budgetRange, priority, targetClosureDate, recruiterOwner, assignedSourcer, status, createdAt, closedAt)
+      VALUES (@reqId, @roleTitle, @businessUnit, @hiringManager, @grade, @location, @workMode, @budgetRange, @priority, @targetClosureDate, @recruiterOwner, @assignedSourcer, @status, @createdAt, @closedAt)
     `)
     const insertMany = database.transaction((requirements: typeof mockRequirements) => {
-      requirements.forEach((requirement) => insertRequirement.run(requirement))
+      requirements.forEach((requirement, index) => {
+        const createdAt = new Date(Date.UTC(2026, 3, 1 + index * 8, 9, 0, 0)).toISOString()
+        const closedAt = requirement.status === 'Closed' ? new Date(Date.UTC(2026, 4, 5, 17, 0, 0)).toISOString() : ''
+        insertRequirement.run({ ...requirement, createdAt, closedAt })
+      })
     })
     insertMany(mockRequirements)
   }
@@ -636,10 +665,14 @@ export function createRequirement(input: RequirementInput, user?: AuthenticatedU
 
   const result = database
     .prepare(
-      `INSERT INTO requirements (reqId, roleTitle, businessUnit, hiringManager, grade, location, workMode, budgetRange, priority, targetClosureDate, recruiterOwner, assignedSourcer, status)
-       VALUES (@reqId, @roleTitle, @businessUnit, @hiringManager, @grade, @location, @workMode, @budgetRange, @priority, @targetClosureDate, @recruiterOwner, @assignedSourcer, @status)`
+      `INSERT INTO requirements (reqId, roleTitle, businessUnit, hiringManager, grade, location, workMode, budgetRange, priority, targetClosureDate, recruiterOwner, assignedSourcer, status, createdAt, closedAt)
+       VALUES (@reqId, @roleTitle, @businessUnit, @hiringManager, @grade, @location, @workMode, @budgetRange, @priority, @targetClosureDate, @recruiterOwner, @assignedSourcer, @status, @createdAt, @closedAt)`
     )
-    .run(requirement) as { lastInsertRowid: number | bigint }
+    .run({
+      ...requirement,
+      createdAt: new Date().toISOString(),
+      closedAt: requirement.status === 'Closed' ? new Date().toISOString() : ''
+    }) as { lastInsertRowid: number | bigint }
 
   return database.prepare('SELECT * FROM requirements WHERE id = ?').get(result.lastInsertRowid) as RequirementRecord
 }
@@ -649,6 +682,10 @@ export function updateRequirement(id: number, input: RequirementInput, user?: Au
   const database = connectDatabase()
   const requirement = normalizeRequirementInput(input, user)
   assertRequirementInput(requirement)
+  const currentRequirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord | undefined
+  if (!currentRequirement) {
+    throw new Error('Requirement not found.')
+  }
 
   database
     .prepare(
@@ -665,15 +702,17 @@ export function updateRequirement(id: number, input: RequirementInput, user?: Au
            targetClosureDate = @targetClosureDate,
            recruiterOwner = @recruiterOwner,
            assignedSourcer = @assignedSourcer,
-           status = @status
+           status = @status,
+           closedAt = @closedAt
        WHERE id = @id`
     )
-    .run({ ...requirement, id })
+    .run({
+      ...requirement,
+      id,
+      closedAt: requirement.status === 'Closed' ? currentRequirement.closedAt || new Date().toISOString() : ''
+    })
 
-  const updatedRequirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord | undefined
-  if (!updatedRequirement) {
-    throw new Error('Requirement not found.')
-  }
+  const updatedRequirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord
 
   return updatedRequirement
 }
@@ -1085,6 +1124,109 @@ export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
   return true
 }
 
+
+type RecruiterDashboardMetrics = PulseSnapshot['metrics']
+
+const funnelStageMinimums: Record<'contacted' | 'interested' | 'screenShortlisted' | 'interviewsScheduled' | 'offersReleased' | 'offersAccepted' | 'joined', CandidateStatus[]> = {
+  contacted: candidateStatuses.slice(candidateStatuses.indexOf('Contacted')),
+  interested: [
+    'Interested',
+    'Screen Shortlisted',
+    'HM Shortlisted',
+    'Interview 1 Scheduled',
+    'Interview 1 Selected',
+    'Interview 2 Scheduled',
+    'Interview 2 Selected',
+    'Final Round',
+    'Offer Discussion',
+    'Offer Released',
+    'Offer Accepted',
+    'Joined'
+  ],
+  screenShortlisted: [
+    'Screen Shortlisted',
+    'HM Shortlisted',
+    'Interview 1 Scheduled',
+    'Interview 1 Selected',
+    'Interview 2 Scheduled',
+    'Interview 2 Selected',
+    'Final Round',
+    'Offer Discussion',
+    'Offer Released',
+    'Offer Accepted',
+    'Joined'
+  ],
+  interviewsScheduled: [
+    'Interview 1 Scheduled',
+    'Interview 1 Selected',
+    'Interview 1 Rejected',
+    'Interview 2 Scheduled',
+    'Interview 2 Selected',
+    'Final Round',
+    'Offer Discussion',
+    'Offer Released',
+    'Offer Accepted',
+    'Joined'
+  ],
+  offersReleased: ['Offer Released', 'Offer Accepted', 'Offer Dropped', 'Joined'],
+  offersAccepted: ['Offer Accepted', 'Joined'],
+  joined: ['Joined']
+}
+
+function countCandidatesAtOrBeyond(candidates: CandidateRecord[], stage: keyof typeof funnelStageMinimums): number {
+  return candidates.filter((candidate) => funnelStageMinimums[stage].includes(candidate.status)).length
+}
+
+function calculateAverageDaysToClose(requirements: RequirementRecord[], candidates: CandidateRecord[]): number {
+  const requirementCloseDurations = requirements
+    .filter((requirement) => requirement.status === 'Closed' && requirement.createdAt && requirement.closedAt)
+    .map((requirement) => daysBetween(requirement.createdAt, new Date(requirement.closedAt)))
+    .filter((days) => days > 0)
+
+  if (requirementCloseDurations.length > 0) {
+    return Math.round(requirementCloseDurations.reduce((total, days) => total + days, 0) / requirementCloseDurations.length)
+  }
+
+  const acceptedCandidateDurations = candidates
+    .filter((candidate) => candidate.status === 'Joined' || candidate.status === 'Offer Accepted')
+    .map((candidate) => candidate.totalDaysInPipeline)
+    .filter((days) => days > 0)
+
+  if (acceptedCandidateDurations.length === 0) {
+    return 0
+  }
+
+  return Math.round(acceptedCandidateDurations.reduce((total, days) => total + days, 0) / acceptedCandidateDurations.length)
+}
+
+function buildRecruiterMetrics(
+  requirements: RequirementRecord[],
+  candidates: CandidateRecord[],
+  reports: ReportRecord[],
+  user?: AuthenticatedUser
+): RecruiterDashboardMetrics {
+  const openRequirements = requirements.filter((item) => item.status === 'Open').length
+  const riskItems = requirements.filter((item) => item.priority === 'Critical' || item.status === 'On Hold').length
+
+  return {
+    complianceScore: 92,
+    openRequirements,
+    reportsGenerated: user?.role === 'Admin' || !user ? reports.length : 0,
+    riskItems,
+    activeCandidates: candidates.length,
+    profilesSourced: candidates.length,
+    contacted: countCandidatesAtOrBeyond(candidates, 'contacted'),
+    interested: countCandidatesAtOrBeyond(candidates, 'interested'),
+    screenShortlisted: countCandidatesAtOrBeyond(candidates, 'screenShortlisted'),
+    interviewsScheduled: countCandidatesAtOrBeyond(candidates, 'interviewsScheduled'),
+    offersReleased: countCandidatesAtOrBeyond(candidates, 'offersReleased'),
+    offersAccepted: countCandidatesAtOrBeyond(candidates, 'offersAccepted'),
+    joined: countCandidatesAtOrBeyond(candidates, 'joined'),
+    offerDrops: candidates.filter((candidate) => candidate.status === 'Offer Dropped').length,
+    averageDaysToClose: calculateAverageDaysToClose(requirements, candidates)
+  }
+}
+
 export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   const database = connectDatabase()
   const allRequirements = attachRequirementDetails(database, database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[])
@@ -1098,8 +1240,6 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
 
   const requirements = filterByUser(allRequirements, user)
   const candidates = filterByUser(allCandidates, user)
-  const openRequirements = requirements.filter((item) => item.status === 'Open').length
-  const riskItems = requirements.filter((item) => item.priority === 'Critical' || item.status === 'On Hold').length
 
   return {
     requirements,
@@ -1110,13 +1250,7 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
       dataRegion: settingsRow.dataRegion,
       notificationsEnabled: Boolean(settingsRow.notificationsEnabled)
     },
-    metrics: {
-      complianceScore: 92,
-      openRequirements,
-      reportsGenerated: user?.role === 'Admin' || !user ? reports.length : 0,
-      riskItems,
-      activeCandidates: candidates.length
-    }
+    metrics: buildRecruiterMetrics(requirements, candidates, reports, user)
   }
 }
 
