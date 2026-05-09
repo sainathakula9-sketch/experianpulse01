@@ -93,6 +93,16 @@ export function SettingsPage({ settings, user, onSettingsChange }: SettingsProps
   }
 
   const handleSaveSettings = (): void => {
+    if (!settingsForm.organizationName.trim()) {
+      setMessage('Organization name is required.')
+      return
+    }
+
+    if (!settingsForm.defaultCurrency.trim()) {
+      setMessage('Default currency is required.')
+      return
+    }
+
     void runSettingsAction(() => window.experianPulse.updateWorkspaceSettings(settingsForm), 'Workspace settings saved to SQLite.')
   }
 
@@ -164,6 +174,16 @@ export function SettingsPage({ settings, user, onSettingsChange }: SettingsProps
   }
 
   const handleSaveUser = (): void => {
+    if (!userForm.username.trim() || !userForm.displayName.trim()) {
+      setMessage('Username and display name are required.')
+      return
+    }
+
+    if (!editingUserId && !userForm.password?.trim()) {
+      setMessage('Password is required for new users.')
+      return
+    }
+
     const action = editingUserId ? () => window.experianPulse.updateUser(editingUserId, userForm) : () => window.experianPulse.createUser(userForm)
     void runSettingsAction(action, editingUserId ? 'User updated.' : 'User created.').then(() => {
       setEditingUserId(undefined)
@@ -177,10 +197,20 @@ export function SettingsPage({ settings, user, onSettingsChange }: SettingsProps
   }
 
   const handleAddSourceChannel = (): void => {
+    if (!newSourceChannel.trim()) {
+      setMessage('Enter a source channel before adding it.')
+      return
+    }
+
     void runSettingsAction(() => window.experianPulse.addSourceChannel(newSourceChannel), 'Source channel added.').then(() => setNewSourceChannel(''))
   }
 
   const handleAddCandidateStatus = (): void => {
+    if (!newCandidateStatus.trim()) {
+      setMessage('Enter a candidate status before adding it.')
+      return
+    }
+
     void runSettingsAction(() => window.experianPulse.addCandidateStatus(newCandidateStatus), 'Candidate status added.').then(() => setNewCandidateStatus(''))
   }
 
@@ -198,7 +228,7 @@ export function SettingsPage({ settings, user, onSettingsChange }: SettingsProps
           </button>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <label className="block text-sm font-semibold text-experian-slate">
             Organization name
             <input className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-experian-ink" onChange={(event) => setSettingsForm({ ...settingsForm, organizationName: event.target.value })} value={settingsForm.organizationName} />
@@ -312,13 +342,15 @@ export function SettingsPage({ settings, user, onSettingsChange }: SettingsProps
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-200">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-[0.18em] text-experian-slate">
                   <tr><th className="px-4 py-3">User</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Actions</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {settings.users.map((managedUser) => (
+                  {settings.users.length === 0 ? (
+                    <tr><td className="px-4 py-8 text-center font-semibold text-experian-slate" colSpan={3}>No users are configured.</td></tr>
+                  ) : settings.users.map((managedUser) => (
                     <tr key={managedUser.id}>
                       <td className="px-4 py-3"><p className="font-bold">{managedUser.displayName}</p><p className="text-xs text-experian-slate">{managedUser.username}</p></td>
                       <td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-experian-slate">{managedUser.role}</span></td>
@@ -342,7 +374,7 @@ export function SettingsPage({ settings, user, onSettingsChange }: SettingsProps
             <button className="inline-flex items-center gap-2 rounded-2xl bg-experian-blue px-4 py-2 text-sm font-bold text-white" onClick={handleAddSourceChannel} type="button"><Plus className="h-4 w-4" /> Add</button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            {settings.sourceChannels.map((channel) => <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-sm font-bold text-experian-slate" key={channel}>{channel}<button aria-label={`Delete ${channel}`} onClick={() => void runSettingsAction(() => window.experianPulse.deleteSourceChannel(channel), 'Source channel deleted.')} type="button"><Trash2 className="h-3.5 w-3.5 text-rose-500" /></button></span>)}
+            {settings.sourceChannels.length === 0 ? <span className="text-sm font-semibold text-experian-slate">No source channels configured.</span> : settings.sourceChannels.map((channel) => <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-sm font-bold text-experian-slate" key={channel}>{channel}<button aria-label={`Delete ${channel}`} onClick={() => void runSettingsAction(() => window.experianPulse.deleteSourceChannel(channel), 'Source channel deleted.')} type="button"><Trash2 className="h-3.5 w-3.5 text-rose-500" /></button></span>)}
           </div>
         </article>
 
@@ -353,7 +385,7 @@ export function SettingsPage({ settings, user, onSettingsChange }: SettingsProps
             <button className="inline-flex items-center gap-2 rounded-2xl bg-experian-blue px-4 py-2 text-sm font-bold text-white" onClick={handleAddCandidateStatus} type="button"><Plus className="h-4 w-4" /> Add</button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            {settings.candidateStatuses.map((status) => <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-sm font-bold text-experian-slate" key={status}>{status}<button aria-label={`Delete ${status}`} onClick={() => void runSettingsAction(() => window.experianPulse.deleteCandidateStatus(status), 'Candidate status deleted.')} type="button"><Trash2 className="h-3.5 w-3.5 text-rose-500" /></button></span>)}
+            {settings.candidateStatuses.length === 0 ? <span className="text-sm font-semibold text-experian-slate">No candidate statuses configured.</span> : settings.candidateStatuses.map((status) => <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-sm font-bold text-experian-slate" key={status}>{status}<button aria-label={`Delete ${status}`} onClick={() => void runSettingsAction(() => window.experianPulse.deleteCandidateStatus(status), 'Candidate status deleted.')} type="button"><Trash2 className="h-3.5 w-3.5 text-rose-500" /></button></span>)}
           </div>
         </article>
       </div>

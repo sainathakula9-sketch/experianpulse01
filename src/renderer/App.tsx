@@ -153,16 +153,26 @@ function App(): JSX.Element {
   const [activePage, setActivePage] = useState<PageKey>('dashboard')
   const [snapshot, setSnapshot] = useState<PulseSnapshot>(fallbackSnapshot)
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser | undefined>()
+  const [isSnapshotLoading, setIsSnapshotLoading] = useState(false)
+  const [snapshotError, setSnapshotError] = useState('')
 
   const refreshSnapshot = (): void => {
     if (!currentUser) {
       return
     }
 
+    setIsSnapshotLoading(true)
+    setSnapshotError('')
     window.experianPulse
       ?.getSnapshot(currentUser)
-      .then(setSnapshot)
-      .catch(() => setSnapshot(fallbackSnapshot))
+      .then((nextSnapshot) => {
+        setSnapshot(nextSnapshot)
+      })
+      .catch((error) => {
+        setSnapshot(fallbackSnapshot)
+        setSnapshotError(error instanceof Error ? error.message : 'Unable to load the local workspace. Showing safe demo data.')
+      })
+      .finally(() => setIsSnapshotLoading(false))
   }
 
   useEffect(() => {
@@ -205,11 +215,20 @@ function App(): JSX.Element {
   }, [activePage, currentUser, snapshot])
 
   if (!currentUser) {
-    return <main className="min-h-screen bg-experian-mist px-8 py-8 text-experian-ink">{page}</main>
+    return <main className="min-h-screen bg-experian-mist px-4 py-6 text-experian-ink sm:px-8">{page}</main>
   }
 
   return (
     <Layout activePage={activePage} currentUser={currentUser} onLogout={handleLogout} onNavigate={setActivePage}>
+      {isSnapshotLoading ? (
+        <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-semibold text-experian-blue">Loading the latest SQLite workspace data…</div>
+      ) : null}
+      {snapshotError ? (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+          <span>{snapshotError}</span>
+          <button className="rounded-xl bg-white px-3 py-1 text-xs font-bold text-rose-700" onClick={refreshSnapshot} type="button">Retry</button>
+        </div>
+      ) : null}
       {page}
     </Layout>
   )

@@ -15,10 +15,17 @@ export function Login({ onLogin }: LoginProps): JSX.Element {
   const submitLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     setError('')
+
+    const trimmedUsername = username.trim()
+    if (!trimmedUsername || !password.trim()) {
+      setError('Enter both username and password to continue.')
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
-      const result = await window.experianPulse.login(username, password)
+      const result = await window.experianPulse.login(trimmedUsername, password)
       if (result.success && result.user) {
         onLogin(result.user)
         return
@@ -33,7 +40,7 @@ export function Login({ onLogin }: LoginProps): JSX.Element {
   }
 
   return (
-    <section className="mx-auto grid max-w-6xl grid-cols-[1.05fr_0.95fr] gap-6 pt-10">
+    <section className="mx-auto grid max-w-6xl gap-6 pt-4 lg:grid-cols-[1.05fr_0.95fr] lg:pt-10">
       <div className="rounded-3xl bg-white p-8 shadow-sm">
         <div className="mb-8 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-experian-purple text-white">
           <LockKeyhole size={25} />
@@ -51,6 +58,7 @@ export function Login({ onLogin }: LoginProps): JSX.Element {
               autoComplete="username"
               className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4"
               onChange={(event) => setUsername(event.target.value)}
+              required
               placeholder="admin, recruiter, or sourcer"
               value={username}
             />
@@ -61,6 +69,7 @@ export function Login({ onLogin }: LoginProps): JSX.Element {
               autoComplete="current-password"
               className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4"
               onChange={(event) => setPassword(event.target.value)}
+              required
               placeholder="••••••••"
               type="password"
               value={password}

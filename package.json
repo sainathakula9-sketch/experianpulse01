@@ -2,14 +2,15 @@
   "name": "experian-pulse",
   "version": "0.1.0",
   "description": "Experian Pulse Windows desktop application foundation.",
-  "main": "dist/main/index.js",
+  "main": "out/main/index.js",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "build:win": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -29,6 +30,31 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.experian.pulse",
+    "productName": "Experian Pulse",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

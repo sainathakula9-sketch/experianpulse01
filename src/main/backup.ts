@@ -312,10 +312,17 @@ export async function createBackup(database: Database.Database, reason = 'Manual
     let status: BackupStatusLevel = 'Success'
     let message = `Backup saved to ${localBackupPath}.`
     if (settings.oneDriveBackupFolder) {
-      mkdirSync(settings.oneDriveBackupFolder, { recursive: true })
-      oneDriveBackupPath = join(settings.oneDriveBackupFolder, basename(localBackupPath))
-      copyFileSync(localBackupPath, oneDriveBackupPath)
-      message = `Backup saved locally and copied to ${oneDriveBackupPath}.`
+      try {
+        mkdirSync(settings.oneDriveBackupFolder, { recursive: true })
+        oneDriveBackupPath = join(settings.oneDriveBackupFolder, basename(localBackupPath))
+        copyFileSync(localBackupPath, oneDriveBackupPath)
+        message = `Backup saved locally and copied to ${oneDriveBackupPath}.`
+      } catch (copyError) {
+        status = 'Warning'
+        const copyMessage = copyError instanceof Error ? copyError.message : 'Unable to copy to OneDrive.'
+        message = `Backup saved to ${localBackupPath}, but the OneDrive copy failed: ${copyMessage}`
+        oneDriveBackupPath = ''
+      }
     } else {
       status = 'Warning'
       message = `Backup saved to ${localBackupPath}. Choose a OneDrive folder in Settings to copy backups there.`
@@ -325,8 +332,9 @@ export async function createBackup(database: Database.Database, reason = 'Manual
     return { ...updatedSettings, success: true, message, localBackupPath, oneDriveBackupPath }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Backup failed.'
-    const updatedSettings = updateBackupStatus(database, 'Failed', settings.lastBackupPath)
-    return { ...updatedSettings, success: false, message }
+    const failedPath = existsSync(localBackupPath) ? localBackupPath : settings.lastBackupPath
+    const updatedSettings = updateBackupStatus(database, 'Failed', failedPath)
+    return { ...updatedSettings, success: false, message: `Backup failed before a complete ZIP could be created: ${message}` }
   } finally {
     rmSync(temporaryDatabasePath, { force: true })
   }

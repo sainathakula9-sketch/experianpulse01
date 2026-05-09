@@ -25,9 +25,9 @@ export function Layout({ activePage, children, currentUser, onLogout, onNavigate
   const allowedNavigation = navigation.filter((item) => item.roles.includes(currentUser.role))
 
   return (
-    <div className="flex min-h-screen bg-experian-mist text-experian-ink">
-      <aside className="flex w-72 flex-col border-r border-white/70 bg-white/95 px-5 py-6 shadow-enterprise">
-        <div className="mb-10 flex items-center gap-3">
+    <div className="min-h-screen bg-experian-mist text-experian-ink lg:flex">
+      <aside className="sticky top-0 z-20 flex max-h-screen flex-col border-r border-white/70 bg-white/95 px-4 py-4 shadow-enterprise lg:w-72 lg:px-5 lg:py-6">
+        <div className="mb-4 flex items-center gap-3 lg:mb-10">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-experian-purple via-experian-magenta to-experian-blue text-white shadow-lg">
             <FileSpreadsheet size={25} />
           </div>
@@ -37,13 +37,13 @@ export function Layout({ activePage, children, currentUser, onLogout, onNavigate
           </div>
         </div>
 
-        <nav className="space-y-2">
+        <nav className="flex gap-2 overflow-x-auto pb-2 lg:block lg:space-y-2 lg:overflow-visible lg:pb-0">
           {allowedNavigation.map(({ key, label, icon: Icon }) => {
             const selected = activePage === key
             return (
               <button
                 key={key}
-                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+                className={`flex shrink-0 items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition lg:w-full ${
                   selected
                     ? 'bg-experian-purple text-white shadow-lg shadow-purple-200'
                     : 'text-experian-slate hover:bg-slate-100 hover:text-experian-ink'
@@ -58,7 +58,7 @@ export function Layout({ activePage, children, currentUser, onLogout, onNavigate
           })}
         </nav>
 
-        <div className="mt-auto space-y-3">
+        <div className="mt-auto hidden space-y-3 lg:block">
           <div className="rounded-3xl bg-gradient-to-br from-experian-purple to-experian-blue p-5 text-white">
             <p className="text-sm font-semibold">Signed in as {currentUser.displayName}</p>
             <p className="mt-2 text-xs leading-5 text-white/80">
@@ -76,8 +76,8 @@ export function Layout({ activePage, children, currentUser, onLogout, onNavigate
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto px-8 py-7">
-        <header className="mb-7 flex items-center justify-between rounded-3xl bg-white px-6 py-5 shadow-sm">
+      <main className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+        <header className="mb-7 flex flex-wrap items-center justify-between gap-4 rounded-3xl bg-white px-5 py-5 shadow-sm lg:px-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-experian-magenta">Compliance workspace</p>
             <h2 className="mt-1 text-2xl font-bold">Experian Pulse command center</h2>

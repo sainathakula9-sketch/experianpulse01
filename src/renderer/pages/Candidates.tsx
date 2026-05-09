@@ -208,8 +208,24 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
 
   const saveCandidate = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    setIsSubmitting(true)
     setFormError(undefined)
+
+    if (!candidateForm.requirementId) {
+      setFormError('Select a requirement before saving a candidate.')
+      return
+    }
+
+    if (!candidateForm.name.trim()) {
+      setFormError('Candidate name is required.')
+      return
+    }
+
+    if (candidateForm.linkedinUrl && !candidateForm.linkedinUrl.startsWith('http')) {
+      setFormError('LinkedIn URL must start with http:// or https://.')
+      return
+    }
+
+    setIsSubmitting(true)
 
     try {
       if (editingCandidateId) {
@@ -232,7 +248,12 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
       return
     }
 
-    await window.experianPulse.deleteCandidate(candidate.id)
+    try {
+      await window.experianPulse.deleteCandidate(candidate.id)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to delete candidate.')
+      return
+    }
     if (editingCandidateId === candidate.id) {
       resetForm()
     }
@@ -303,7 +324,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
   }
 
   return (
-    <section className="grid grid-cols-[minmax(0,1fr)_420px] gap-6">
+    <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <article className="rounded-3xl bg-white p-6 shadow-sm">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
@@ -350,7 +371,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
           </div>
         )}
 
-        <div className="mb-5 grid grid-cols-4 gap-3 rounded-2xl bg-slate-50 p-4">
+        <div className="mb-5 grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
           <select className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none" onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} value={filters.status}>
             <option value="">All statuses</option>
             {candidateStatuses.map((status) => <option key={status}>{status}</option>)}
@@ -369,7 +390,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
           </select>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-slate-100">
+        <div className="overflow-x-auto rounded-2xl border border-slate-100">
           <table className="min-w-full divide-y divide-slate-100 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-[0.12em] text-experian-slate">
               <tr>
@@ -384,7 +405,13 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {filteredCandidates.map((candidate) => (
+              {filteredCandidates.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-10 text-center text-sm font-semibold text-experian-slate" colSpan={8}>
+                    No candidates match the current filters. Add a candidate or clear filters to expand the view.
+                  </td>
+                </tr>
+              ) : filteredCandidates.map((candidate) => (
                 <tr key={candidate.id}>
                   <td className="px-4 py-4">
                     <p className="font-bold text-experian-ink">{candidate.name}</p>
@@ -422,8 +449,8 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
             </button>
           </div>
 
-          <div className="grid max-h-[64vh] grid-cols-2 gap-3 overflow-y-auto pr-1">
-            <label className="col-span-2 text-sm font-semibold text-experian-slate">
+          <div className="grid max-h-[64vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+            <label className="sm:col-span-2 text-sm font-semibold text-experian-slate">
               Requirement
               <select className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField('requirementId', Number(event.target.value))} required value={candidateForm.requirementId}>
                 <option value={0}>Select requirement</option>
@@ -431,7 +458,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
               </select>
             </label>
             {textFields.map(({ key, label, multiline, required, type }) => (
-              <label className={`${multiline ? 'col-span-2' : ''} text-sm font-semibold text-experian-slate`} key={key}>
+              <label className={`${multiline ? 'sm:col-span-2' : ''} text-sm font-semibold text-experian-slate`} key={key}>
                 {label}
                 {key === 'sourceChannel' && settings.sourceChannels.length > 0 ? (
                   <select className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField(key, event.target.value as never)} required={required} value={candidateForm[key] as string}>
@@ -454,7 +481,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
             <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-experian-slate">
               <input checked={candidateForm.servingNotice} onChange={(event) => updateField('servingNotice', event.target.checked)} type="checkbox" /> Serving Notice
             </label>
-            <label className="col-span-2 text-sm font-semibold text-experian-slate">
+            <label className="sm:col-span-2 text-sm font-semibold text-experian-slate">
               Status change notes
               <textarea className="mt-2 min-h-20 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField('statusChangeNotes', event.target.value)} placeholder="Optional notes recorded when the status changes" value={candidateForm.statusChangeNotes ?? ''} />
             </label>
