@@ -77,6 +77,16 @@ export interface RequirementRecord {
 
 export type RequirementInput = Omit<RequirementRecord, 'id' | 'intake' | 'searchStrings'>
 
+export interface CandidateStatusHistoryRecord {
+  id: number
+  candidateId: number
+  oldStatus: CandidateStatus | ''
+  newStatus: CandidateStatus
+  changedByUser: string
+  changedAt: string
+  notes: string
+}
+
 export interface CandidateRecord {
   id: number
   name: string
@@ -106,9 +116,14 @@ export interface CandidateRecord {
   updatedAt: string
   assignedRecruiter: string
   assignedSourcer: string
+  statusHistory: CandidateStatusHistoryRecord[]
+  daysInCurrentStage: number
+  totalDaysInPipeline: number
 }
 
-export type CandidateInput = Omit<CandidateRecord, 'id' | 'requirementTitle' | 'updatedAt' | 'assignedRecruiter' | 'assignedSourcer'>
+export type CandidateInput = Omit<CandidateRecord, 'id' | 'requirementTitle' | 'updatedAt' | 'assignedRecruiter' | 'assignedSourcer' | 'statusHistory' | 'daysInCurrentStage' | 'totalDaysInPipeline'> & {
+  statusChangeNotes?: string
+}
 
 export interface ReportRecord {
   id: number
