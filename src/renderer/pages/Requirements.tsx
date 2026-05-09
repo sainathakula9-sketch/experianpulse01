@@ -1,8 +1,8 @@
-import { BriefcaseBusiness, CalendarDays, ClipboardList, Copy, Download, FolderOpen, Pencil, PlusCircle, Search, Upload, Users, WandSparkles } from 'lucide-react'
+import { BriefcaseBusiness, CalendarDays, ClipboardList, Copy, Download, FolderOpen, Pencil, PlusCircle, Search, Users, WandSparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import * as XLSX from 'xlsx'
 import type { AuthenticatedUser, CandidateRecord, RequirementInput, RequirementIntakeInput, RequirementPriority, RequirementSearchStringInput, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
+import { exportRequirementSummary } from '../utils/excel'
 
 interface RequirementsProps {
   candidates: CandidateRecord[]
@@ -395,15 +395,12 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
     setCopiedSearchString(field)
   }
 
-  const exportWorkbook = (): void => {
-    const worksheet = XLSX.utils.json_to_sheet(requirements)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Requirements')
-    XLSX.writeFile(workbook, 'experian-pulse-requirements.xlsx')
-  }
+  const exportSelectedRequirementSummary = (): void => {
+    if (!selectedRequirement) {
+      return
+    }
 
-  const acknowledgeImport = (): void => {
-    window.alert('XLSX import workflow placeholder: parsing and validation will be added in a future milestone.')
+    exportRequirementSummary(selectedRequirement, selectedCandidates)
   }
 
   return (
@@ -429,14 +426,14 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
                 Create, edit, list, and open requirement details from SQLite-backed hiring folders.
               </p>
             </div>
-            <div className="flex gap-3">
-              <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-experian-slate" onClick={acknowledgeImport} type="button">
-                <Upload size={16} /> Import XLSX
-              </button>
-              <button className="inline-flex items-center gap-2 rounded-2xl bg-experian-purple px-4 py-2 text-sm font-bold text-white" onClick={exportWorkbook} type="button">
-                <Download size={16} /> Export XLSX
-              </button>
-            </div>
+            <button
+              className="inline-flex items-center gap-2 rounded-2xl bg-experian-purple px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!selectedRequirement}
+              onClick={exportSelectedRequirementSummary}
+              type="button"
+            >
+              <Download size={16} /> Export summary
+            </button>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
