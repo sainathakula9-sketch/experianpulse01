@@ -74,7 +74,20 @@ const fallbackSnapshot: PulseSnapshot = {
       followUpDate: '2026-05-12',
       updatedAt: '2026-05-07',
       assignedRecruiter: 'recruiter',
-      assignedSourcer: 'sourcer'
+      assignedSourcer: 'sourcer',
+      statusHistory: [
+        {
+          id: 1,
+          candidateId: 1,
+          oldStatus: '',
+          newStatus: 'Screen Shortlisted',
+          changedByUser: 'recruiter',
+          changedAt: '2026-05-07T09:00:00.000Z',
+          notes: 'Initial status captured during pipeline setup.'
+        }
+      ],
+      daysInCurrentStage: 2,
+      totalDaysInPipeline: 2
     }
   ],
   reports: [

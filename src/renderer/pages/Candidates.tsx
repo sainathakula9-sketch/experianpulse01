@@ -1,4 +1,4 @@
-import { ClipboardCheck, Pencil, PlusCircle, Trash2 } from 'lucide-react'
+import { ClipboardCheck, History, Pencil, PlusCircle, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, RequirementRecord } from '../../shared/types'
@@ -54,7 +54,8 @@ const emptyCandidate: CandidateInput = {
   recruiterName: '',
   status: 'New Profile',
   remarks: '',
-  followUpDate: ''
+  followUpDate: '',
+  statusChangeNotes: ''
 }
 
 const textFields: Array<{ key: keyof CandidateInput; label: string; type?: string; required?: boolean; multiline?: boolean }> = [
@@ -104,7 +105,8 @@ function toCandidateInput(candidate: CandidateRecord): CandidateInput {
     recruiterName: candidate.recruiterName,
     status: candidate.status,
     remarks: candidate.remarks,
-    followUpDate: candidate.followUpDate
+    followUpDate: candidate.followUpDate,
+    statusChangeNotes: ''
   }
 }
 
@@ -122,11 +124,20 @@ function uniqueValues(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
 }
 
+function formatDateTime(value: string): string {
+  if (!value) {
+    return '—'
+  }
+
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
 export function Candidates({ candidates, onCandidatesChange, requirements, user }: CandidatesProps): JSX.Element {
   const [candidateForm, setCandidateForm] = useState<CandidateInput>(() => createDefaultCandidate(requirements, user))
   const [editingCandidateId, setEditingCandidateId] = useState<number | undefined>()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | undefined>()
+  const [selectedCandidateId, setSelectedCandidateId] = useState<number | undefined>()
   const [filters, setFilters] = useState({ status: '', sourcer: '', sourceChannel: '', location: '' })
 
   const filterOptions = useMemo(
@@ -136,6 +147,11 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
       locations: uniqueValues(candidates.map((candidate) => candidate.location))
     }),
     [candidates]
+  )
+
+  const selectedCandidate = useMemo(
+    () => candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates.find((candidate) => candidate.id === editingCandidateId),
+    [candidates, editingCandidateId, selectedCandidateId]
   )
 
   const filteredCandidates = useMemo(
@@ -153,6 +169,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
   const resetForm = (): void => {
     setCandidateForm(createDefaultCandidate(requirements, user))
     setEditingCandidateId(undefined)
+    setSelectedCandidateId(undefined)
     setFormError(undefined)
   }
 
@@ -163,6 +180,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
   const editCandidate = (candidate: CandidateRecord): void => {
     setCandidateForm(toCandidateInput(candidate))
     setEditingCandidateId(candidate.id)
+    setSelectedCandidateId(candidate.id)
     setFormError(undefined)
   }
 
@@ -177,6 +195,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
       } else {
         await window.experianPulse.createCandidate(candidateForm)
       }
+      setCandidateForm((currentCandidate) => ({ ...currentCandidate, statusChangeNotes: '' }))
       resetForm()
       onCandidatesChange()
     } catch (error) {
@@ -194,6 +213,9 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
     await window.experianPulse.deleteCandidate(candidate.id)
     if (editingCandidateId === candidate.id) {
       resetForm()
+    }
+    if (selectedCandidateId === candidate.id) {
+      setSelectedCandidateId(undefined)
     }
     onCandidatesChange()
   }
@@ -238,6 +260,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
                 <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">Location</th>
                 <th className="px-4 py-3">Follow-up</th>
+                <th className="px-4 py-3">Stage days</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -253,9 +276,11 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
                   <td className="px-4 py-4 text-experian-slate">{candidate.sourceChannel || '—'}</td>
                   <td className="px-4 py-4 text-experian-slate">{candidate.location || '—'}</td>
                   <td className="px-4 py-4 text-experian-slate">{candidate.followUpDate || '—'}</td>
+                  <td className="px-4 py-4 text-experian-slate">{candidate.daysInCurrentStage}d</td>
                   <td className="px-4 py-4">
                     <div className="flex gap-2">
                       <button className="rounded-full border border-slate-200 p-2 text-experian-slate" onClick={() => editCandidate(candidate)} type="button"><Pencil size={14} /></button>
+                      <button className="rounded-full border border-slate-200 p-2 text-experian-slate" onClick={() => setSelectedCandidateId(candidate.id)} type="button"><History size={14} /></button>
                       <button className="rounded-full border border-rose-100 p-2 text-rose-600" onClick={() => deleteCandidate(candidate)} type="button"><Trash2 size={14} /></button>
                     </div>
                   </td>
@@ -305,6 +330,10 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
             <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-experian-slate">
               <input checked={candidateForm.servingNotice} onChange={(event) => updateField('servingNotice', event.target.checked)} type="checkbox" /> Serving Notice
             </label>
+            <label className="col-span-2 text-sm font-semibold text-experian-slate">
+              Status change notes
+              <textarea className="mt-2 min-h-20 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField('statusChangeNotes', event.target.value)} placeholder="Optional notes recorded when the status changes" value={candidateForm.statusChangeNotes ?? ''} />
+            </label>
           </div>
 
           {formError && <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p>}
@@ -312,6 +341,48 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
             {isSubmitting ? 'Saving...' : editingCandidateId ? 'Save candidate' : 'Add candidate'}
           </button>
         </form>
+
+
+        {selectedCandidate && (
+          <article className="rounded-3xl bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-bold">Candidate detail</h3>
+                <p className="mt-1 text-sm text-experian-slate">{selectedCandidate.name} · {selectedCandidate.requirementTitle}</p>
+              </div>
+              <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-experian-purple">{selectedCandidate.status}</span>
+            </div>
+
+            <div className="mb-5 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-experian-slate">Days in current stage</p>
+                <p className="mt-2 text-2xl font-black text-experian-ink">{selectedCandidate.daysInCurrentStage}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-experian-slate">Total days in pipeline</p>
+                <p className="mt-2 text-2xl font-black text-experian-ink">{selectedCandidate.totalDaysInPipeline}</p>
+              </div>
+            </div>
+
+            <div className="mb-4 flex items-center gap-2 text-sm font-bold text-experian-ink">
+              <History size={16} /> Status timeline
+            </div>
+            <div className="max-h-80 space-y-4 overflow-y-auto pr-1">
+              {selectedCandidate.statusHistory.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-experian-slate">No status changes have been recorded yet.</p>
+              ) : (
+                selectedCandidate.statusHistory.map((historyItem) => (
+                  <div className="relative border-l-2 border-experian-purple/20 pl-4" key={historyItem.id}>
+                    <span className="absolute -left-[7px] top-1 h-3 w-3 rounded-full bg-experian-purple" />
+                    <p className="text-sm font-bold text-experian-ink">{historyItem.oldStatus || 'Pipeline start'} → {historyItem.newStatus}</p>
+                    <p className="mt-1 text-xs text-experian-slate">Changed by {historyItem.changedByUser} on {formatDateTime(historyItem.changedAt)}</p>
+                    {historyItem.notes && <p className="mt-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs text-experian-slate">{historyItem.notes}</p>}
+                  </div>
+                ))
+              )}
+            </div>
+          </article>
+        )}
 
         <article className="rounded-3xl bg-white p-6 shadow-sm">
           <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-experian-purple/10 text-experian-purple">

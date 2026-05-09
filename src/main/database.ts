@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserRole } from '../shared/types'
+import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, CandidateStatusHistoryRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserRole } from '../shared/types'
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -324,6 +324,17 @@ function initialiseSchema(database: Database.Database): void {
       FOREIGN KEY (requirementId) REFERENCES requirements(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS candidate_status_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      candidateId INTEGER NOT NULL,
+      oldStatus TEXT NOT NULL DEFAULT '',
+      newStatus TEXT NOT NULL,
+      changedByUser TEXT NOT NULL,
+      changedAt TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY (candidateId) REFERENCES candidates(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -451,6 +462,32 @@ function migrateLegacyCandidates(database: Database.Database): void {
   })
 }
 
+function seedMissingCandidateStatusHistory(database: Database.Database): void {
+  const candidates = database.prepare('SELECT * FROM candidates').all() as CandidateDatabaseRow[]
+  const historyCount = database.prepare('SELECT COUNT(*) as count FROM candidate_status_history WHERE candidateId = ?')
+  const insertHistory = database.prepare(
+    `INSERT INTO candidate_status_history (candidateId, oldStatus, newStatus, changedByUser, changedAt, notes)
+     VALUES (@candidateId, '', @newStatus, @changedByUser, @changedAt, @notes)`
+  )
+
+  const insertMissing = database.transaction((candidateRows: CandidateDatabaseRow[]) => {
+    candidateRows.forEach((candidate) => {
+      const existingHistory = historyCount.get(candidate.id) as { count: number }
+      if (existingHistory.count === 0) {
+        insertHistory.run({
+          candidateId: candidate.id,
+          newStatus: candidate.status,
+          changedByUser: candidate.recruiterName || candidate.sourcerName || 'system',
+          changedAt: candidate.updatedAt || new Date().toISOString(),
+          notes: 'Initial status captured during pipeline setup.'
+        })
+      }
+    })
+  })
+
+  insertMissing(candidates)
+}
+
 function seedMockData(database: Database.Database): void {
   const insertUser = database.prepare(`
     INSERT INTO users (username, passwordHash, role, displayName)
@@ -494,6 +531,8 @@ function seedMockData(database: Database.Database): void {
     })
     insertMany(mockCandidates)
   }
+
+  seedMissingCandidateStatusHistory(database)
 
   const reportCount = database.prepare('SELECT COUNT(*) as count FROM reports').get() as { count: number }
   if (reportCount.count === 0) {
@@ -851,7 +890,8 @@ function normalizeCandidateInput(input: CandidateInput): CandidateInput {
     recruiterName: input.recruiterName.trim(),
     status: input.status,
     remarks: input.remarks.trim(),
-    followUpDate: input.followUpDate.trim()
+    followUpDate: input.followUpDate.trim(),
+    statusChangeNotes: input.statusChangeNotes?.trim() ?? ''
   }
 }
 
@@ -887,11 +927,63 @@ function prepareCandidateForStorage(database: Database.Database, input: Candidat
   }
 }
 
-function mapCandidateRow(row: Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number | boolean }): CandidateRecord {
+type CandidateDatabaseRow = Omit<CandidateRecord, 'servingNotice' | 'statusHistory' | 'daysInCurrentStage' | 'totalDaysInPipeline'> & { servingNotice: number | boolean }
+
+function daysBetween(startIso: string, endDate = new Date()): number {
+  const startDate = new Date(startIso)
+  if (Number.isNaN(startDate.getTime())) {
+    return 0
+  }
+
+  const millisecondsPerDay = 1000 * 60 * 60 * 24
+  return Math.max(0, Math.floor((endDate.getTime() - startDate.getTime()) / millisecondsPerDay))
+}
+
+function mapCandidateRow(row: CandidateDatabaseRow, statusHistory: CandidateStatusHistoryRecord[] = []): CandidateRecord {
+  const latestStageChange = statusHistory.find((history) => history.newStatus === row.status)
+  const firstPipelineEvent = statusHistory[statusHistory.length - 1]
+
   return {
     ...row,
-    servingNotice: Boolean(row.servingNotice)
+    servingNotice: Boolean(row.servingNotice),
+    statusHistory,
+    daysInCurrentStage: daysBetween(latestStageChange?.changedAt ?? row.updatedAt),
+    totalDaysInPipeline: daysBetween(firstPipelineEvent?.changedAt ?? row.updatedAt)
   }
+}
+
+function getCandidateStatusHistory(database: Database.Database, candidateId: number): CandidateStatusHistoryRecord[] {
+  return database
+    .prepare('SELECT * FROM candidate_status_history WHERE candidateId = ? ORDER BY changedAt DESC, id DESC')
+    .all(candidateId) as CandidateStatusHistoryRecord[]
+}
+
+function mapCandidateWithHistory(database: Database.Database, row: CandidateDatabaseRow): CandidateRecord {
+  return mapCandidateRow(row, getCandidateStatusHistory(database, row.id))
+}
+
+function insertCandidateStatusHistory(
+  database: Database.Database,
+  candidateId: number | bigint,
+  oldStatus: CandidateStatus | '',
+  newStatus: CandidateStatus,
+  user: AuthenticatedUser,
+  notes = '',
+  changedAt = new Date().toISOString()
+): void {
+  database
+    .prepare(
+      `INSERT INTO candidate_status_history (candidateId, oldStatus, newStatus, changedByUser, changedAt, notes)
+       VALUES (@candidateId, @oldStatus, @newStatus, @changedByUser, @changedAt, @notes)`
+    )
+    .run({
+      candidateId,
+      oldStatus,
+      newStatus,
+      changedByUser: user.username,
+      changedAt,
+      notes: notes.trim()
+    })
 }
 
 function assertCanAccessCandidate(database: Database.Database, candidateId: number, user: AuthenticatedUser): CandidateRecord {
@@ -926,7 +1018,9 @@ export function createCandidate(input: CandidateInput, user?: AuthenticatedUser)
     )
     .run(candidate) as { lastInsertRowid: number | bigint }
 
-  return mapCandidateRow(database.prepare('SELECT * FROM candidates WHERE id = ?').get(result.lastInsertRowid) as Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number })
+  insertCandidateStatusHistory(database, result.lastInsertRowid, '', candidate.status as CandidateStatus, user, candidate.statusChangeNotes as string)
+
+  return mapCandidateWithHistory(database, database.prepare('SELECT * FROM candidates WHERE id = ?').get(result.lastInsertRowid) as CandidateDatabaseRow)
 }
 
 export function updateCandidate(id: number, input: CandidateInput, user?: AuthenticatedUser): CandidateRecord {
@@ -935,7 +1029,7 @@ export function updateCandidate(id: number, input: CandidateInput, user?: Authen
   }
 
   const database = connectDatabase()
-  assertCanAccessCandidate(database, id, user)
+  const currentCandidate = assertCanAccessCandidate(database, id, user)
   assertCanAccessRequirement(database, input.requirementId, user)
   const candidate = prepareCandidateForStorage(database, input)
   database
@@ -973,7 +1067,11 @@ export function updateCandidate(id: number, input: CandidateInput, user?: Authen
     )
     .run({ ...candidate, id })
 
-  return mapCandidateRow(database.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number })
+  if (currentCandidate.status !== candidate.status) {
+    insertCandidateStatusHistory(database, id, currentCandidate.status, candidate.status as CandidateStatus, user, candidate.statusChangeNotes as string)
+  }
+
+  return mapCandidateWithHistory(database, database.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as CandidateDatabaseRow)
 }
 
 export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
@@ -990,7 +1088,7 @@ export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
 export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   const database = connectDatabase()
   const allRequirements = attachRequirementDetails(database, database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[])
-  const allCandidates = (database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as Array<Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number }>).map(mapCandidateRow)
+  const allCandidates = (database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as CandidateDatabaseRow[]).map((candidate) => mapCandidateWithHistory(database, candidate))
   const reports = database.prepare('SELECT * FROM reports ORDER BY updatedAt DESC').all() as ReportRecord[]
   const settingsRow = database.prepare('SELECT * FROM settings WHERE id = 1').get() as {
     organizationName: string
