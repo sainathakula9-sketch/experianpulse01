@@ -1,4 +1,4 @@
-import type { AuthenticatedUser, LoginResult, PulseSnapshot, RequirementInput, RequirementRecord } from '../../shared/types'
+import type { AuthenticatedUser, LoginResult, PulseSnapshot, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord } from '../../shared/types'
 
 declare global {
   interface Window {
@@ -8,6 +8,7 @@ declare global {
       getSnapshot: (user?: AuthenticatedUser) => Promise<PulseSnapshot>
       createRequirement: (requirement: RequirementInput) => Promise<RequirementRecord>
       updateRequirement: (id: number, requirement: RequirementInput) => Promise<RequirementRecord>
+      saveRequirementIntake: (requirementId: number, intake: RequirementIntakeInput) => Promise<RequirementIntakeRecord>
     }
   }
 }

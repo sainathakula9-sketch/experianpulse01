@@ -1,8 +1,8 @@
-import { BriefcaseBusiness, CalendarDays, Download, FolderOpen, Pencil, PlusCircle, Upload, Users } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { BriefcaseBusiness, CalendarDays, ClipboardList, Download, FolderOpen, Pencil, PlusCircle, Upload, Users } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import * as XLSX from 'xlsx'
-import type { AuthenticatedUser, RequirementInput, RequirementPriority, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
+import type { AuthenticatedUser, RequirementInput, RequirementIntakeInput, RequirementPriority, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
 
 interface RequirementsProps {
   onRequirementsChange: () => void
@@ -25,6 +25,49 @@ const emptyRequirement: RequirementInput = {
   assignedSourcer: '',
   status: 'Open'
 }
+
+
+const emptyIntake: RequirementIntakeInput = {
+  roleSummary: '',
+  whyRoleOpen: '',
+  mustHaveSkills: '',
+  goodToHaveSkills: '',
+  primarySkills: '',
+  secondarySkills: '',
+  targetCompanies: '',
+  companiesToAvoid: '',
+  minimumExperience: '',
+  maximumExperience: '',
+  salaryRange: '',
+  noticePeriodPreference: '',
+  interviewProcess: '',
+  diversityFocus: '',
+  candidateSellingPoints: '',
+  keyChallenges: '',
+  hiringManagerExpectations: '',
+  additionalNotes: ''
+}
+
+const intakeFields: Array<{ key: keyof RequirementIntakeInput; label: string; multiline?: boolean }> = [
+  { key: 'roleSummary', label: 'Role summary', multiline: true },
+  { key: 'whyRoleOpen', label: 'Why is this role open?', multiline: true },
+  { key: 'mustHaveSkills', label: 'Must-have skills', multiline: true },
+  { key: 'goodToHaveSkills', label: 'Good-to-have skills', multiline: true },
+  { key: 'primarySkills', label: 'Primary skills' },
+  { key: 'secondarySkills', label: 'Secondary skills' },
+  { key: 'targetCompanies', label: 'Target companies', multiline: true },
+  { key: 'companiesToAvoid', label: 'Companies to avoid', multiline: true },
+  { key: 'minimumExperience', label: 'Minimum experience' },
+  { key: 'maximumExperience', label: 'Maximum experience' },
+  { key: 'salaryRange', label: 'Salary range' },
+  { key: 'noticePeriodPreference', label: 'Notice period preference' },
+  { key: 'interviewProcess', label: 'Interview process', multiline: true },
+  { key: 'diversityFocus', label: 'Diversity focus', multiline: true },
+  { key: 'candidateSellingPoints', label: 'Candidate selling points', multiline: true },
+  { key: 'keyChallenges', label: 'Key challenges', multiline: true },
+  { key: 'hiringManagerExpectations', label: 'Hiring manager expectations', multiline: true },
+  { key: 'additionalNotes', label: 'Additional notes', multiline: true }
+]
 
 const statusOptions: RequirementStatus[] = ['Open', 'On Hold', 'Closed', 'Cancelled']
 const priorityOptions: RequirementPriority[] = ['Low', 'Medium', 'High', 'Critical']
@@ -71,15 +114,56 @@ function createDefaultRequirement(user: AuthenticatedUser): RequirementInput {
   }
 }
 
+
+function toIntakeInput(requirement?: RequirementRecord): RequirementIntakeInput {
+  if (!requirement?.intake) {
+    return emptyIntake
+  }
+
+  return {
+    roleSummary: requirement.intake.roleSummary,
+    whyRoleOpen: requirement.intake.whyRoleOpen,
+    mustHaveSkills: requirement.intake.mustHaveSkills,
+    goodToHaveSkills: requirement.intake.goodToHaveSkills,
+    primarySkills: requirement.intake.primarySkills,
+    secondarySkills: requirement.intake.secondarySkills,
+    targetCompanies: requirement.intake.targetCompanies,
+    companiesToAvoid: requirement.intake.companiesToAvoid,
+    minimumExperience: requirement.intake.minimumExperience,
+    maximumExperience: requirement.intake.maximumExperience,
+    salaryRange: requirement.intake.salaryRange,
+    noticePeriodPreference: requirement.intake.noticePeriodPreference,
+    interviewProcess: requirement.intake.interviewProcess,
+    diversityFocus: requirement.intake.diversityFocus,
+    candidateSellingPoints: requirement.intake.candidateSellingPoints,
+    keyChallenges: requirement.intake.keyChallenges,
+    hiringManagerExpectations: requirement.intake.hiringManagerExpectations,
+    additionalNotes: requirement.intake.additionalNotes
+  }
+}
+
+function hasIntakeData(intake: RequirementIntakeInput): boolean {
+  return Object.values(intake).some((value) => value.trim().length > 0)
+}
+
 export function Requirements({ onRequirementsChange, requirements, user }: RequirementsProps): JSX.Element {
   const [formRequirement, setFormRequirement] = useState<RequirementInput>(() => createDefaultRequirement(user))
   const [editingRequirementId, setEditingRequirementId] = useState<number | undefined>()
   const [selectedRequirementId, setSelectedRequirementId] = useState<number | undefined>(requirements[0]?.id)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | undefined>()
+  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'intake'>('overview')
+  const [intakeForm, setIntakeForm] = useState<RequirementIntakeInput>(emptyIntake)
+  const [isSavingIntake, setIsSavingIntake] = useState(false)
+  const [intakeError, setIntakeError] = useState<string | undefined>()
 
   const canManageRequirements = user.role === 'Admin' || user.role === 'Recruiter'
   const selectedRequirement = requirements.find((requirement) => requirement.id === selectedRequirementId) ?? requirements[0]
+
+  useEffect(() => {
+    setIntakeForm(toIntakeInput(selectedRequirement))
+    setIntakeError(undefined)
+  }, [selectedRequirement?.id, selectedRequirement?.intake?.updatedAt])
 
   const metrics = useMemo(() => {
     const openCount = requirements.filter((requirement) => requirement.status === 'Open').length
@@ -103,6 +187,10 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
 
   const updateField = <K extends keyof RequirementInput>(field: K, value: RequirementInput[K]): void => {
     setFormRequirement((currentRequirement) => ({ ...currentRequirement, [field]: value }))
+  }
+
+  const updateIntakeField = <K extends keyof RequirementIntakeInput>(field: K, value: RequirementIntakeInput[K]): void => {
+    setIntakeForm((currentIntake) => ({ ...currentIntake, [field]: value }))
   }
 
   const editRequirement = (requirement: RequirementRecord): void => {
@@ -138,6 +226,28 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
       setFormError(error instanceof Error ? error.message : 'Unable to save requirement.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+
+  const saveIntake = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+
+    if (!selectedRequirement) {
+      return
+    }
+
+    setIsSavingIntake(true)
+    setIntakeError(undefined)
+
+    try {
+      const savedIntake = await window.experianPulse.saveRequirementIntake(selectedRequirement.id, intakeForm)
+      setIntakeForm(toIntakeInput({ ...selectedRequirement, intake: savedIntake }))
+      onRequirementsChange()
+    } catch (error) {
+      setIntakeError(error instanceof Error ? error.message : 'Unable to save intake notes.')
+    } finally {
+      setIsSavingIntake(false)
     }
   }
 
@@ -263,26 +373,104 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
             </div>
 
             {selectedRequirement ? (
-              <dl className="space-y-3 text-sm">
-                {[
-                  ['Req ID', selectedRequirement.reqId],
-                  ['Business Unit', selectedRequirement.businessUnit],
-                  ['Hiring Manager', selectedRequirement.hiringManager],
-                  ['Grade', selectedRequirement.grade],
-                  ['Location', selectedRequirement.location],
-                  ['Work Mode', selectedRequirement.workMode],
-                  ['Budget Range', selectedRequirement.budgetRange],
-                  ['Priority', selectedRequirement.priority],
-                  ['Target Closure', selectedRequirement.targetClosureDate],
-                  ['Recruiter Owner', selectedRequirement.recruiterOwner],
-                  ['Assigned Sourcer', selectedRequirement.assignedSourcer]
-                ].map(([label, value]) => (
-                  <div className="flex items-start justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3" key={label}>
-                    <dt className="font-semibold text-experian-slate">{label}</dt>
-                    <dd className="text-right font-bold text-experian-ink">{value}</dd>
+              <>
+                <div className="mb-5 grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-1 text-sm font-bold">
+                  <button
+                    className={`rounded-xl px-3 py-2 transition ${activeDetailTab === 'overview' ? 'bg-white text-experian-purple shadow-sm' : 'text-experian-slate'}`}
+                    onClick={() => setActiveDetailTab('overview')}
+                    type="button"
+                  >
+                    Overview
+                  </button>
+                  <button
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 transition ${activeDetailTab === 'intake' ? 'bg-white text-experian-purple shadow-sm' : 'text-experian-slate'}`}
+                    onClick={() => setActiveDetailTab('intake')}
+                    type="button"
+                  >
+                    <ClipboardList size={15} /> Intake Call
+                  </button>
+                </div>
+
+                {activeDetailTab === 'overview' ? (
+                  <dl className="space-y-3 text-sm">
+                    {[
+                      ['Req ID', selectedRequirement.reqId],
+                      ['Business Unit', selectedRequirement.businessUnit],
+                      ['Hiring Manager', selectedRequirement.hiringManager],
+                      ['Grade', selectedRequirement.grade],
+                      ['Location', selectedRequirement.location],
+                      ['Work Mode', selectedRequirement.workMode],
+                      ['Budget Range', selectedRequirement.budgetRange],
+                      ['Priority', selectedRequirement.priority],
+                      ['Target Closure', selectedRequirement.targetClosureDate],
+                      ['Recruiter Owner', selectedRequirement.recruiterOwner],
+                      ['Assigned Sourcer', selectedRequirement.assignedSourcer]
+                    ].map(([label, value]) => (
+                      <div className="flex items-start justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3" key={label}>
+                        <dt className="font-semibold text-experian-slate">{label}</dt>
+                        <dd className="text-right font-bold text-experian-ink">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <div className="space-y-5">
+                    <section className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="font-bold text-experian-ink">Saved intake summary</h4>
+                        {selectedRequirement.intake?.updatedAt && <span className="text-xs font-semibold text-experian-slate">Updated {new Date(selectedRequirement.intake.updatedAt).toLocaleString()}</span>}
+                      </div>
+                      {hasIntakeData(toIntakeInput(selectedRequirement)) ? (
+                        <dl className="mt-4 space-y-3 text-sm">
+                          {intakeFields.map(({ key, label }) => {
+                            const value = selectedRequirement.intake?.[key]
+                            if (!value?.trim()) {
+                              return null
+                            }
+
+                            return (
+                              <div className="rounded-2xl bg-white px-4 py-3" key={key}>
+                                <dt className="font-bold text-experian-slate">{label}</dt>
+                                <dd className="mt-1 whitespace-pre-line leading-6 text-experian-ink">{value}</dd>
+                              </div>
+                            )
+                          })}
+                        </dl>
+                      ) : (
+                        <p className="mt-3 text-sm text-experian-slate">No intake call details saved yet. Complete the form below to capture hiring context.</p>
+                      )}
+                    </section>
+
+                    <form className="space-y-4" onSubmit={saveIntake}>
+                      <div className="grid grid-cols-1 gap-3">
+                        {intakeFields.map(({ key, label, multiline }) => (
+                          <label className="text-sm font-semibold text-experian-slate" key={key}>
+                            {label}
+                            {multiline ? (
+                              <textarea
+                                className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4"
+                                onChange={(event) => updateIntakeField(key, event.target.value)}
+                                value={intakeForm[key]}
+                              />
+                            ) : (
+                              <input
+                                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4"
+                                onChange={(event) => updateIntakeField(key, event.target.value)}
+                                value={intakeForm[key]}
+                              />
+                            )}
+                          </label>
+                        ))}
+                      </div>
+
+                      {intakeError && <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{intakeError}</p>}
+
+                      <button className="w-full rounded-2xl bg-experian-blue px-5 py-3 font-bold text-white shadow-lg shadow-blue-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={isSavingIntake} type="submit">
+                        {isSavingIntake ? 'Saving intake...' : 'Save intake call'}
+                      </button>
+                    </form>
                   </div>
-                ))}
-              </dl>
+                )}
+              </>
             ) : (
               <p className="text-sm text-experian-slate">Select a requirement card to open its detail page.</p>
             )}

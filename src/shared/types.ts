@@ -16,6 +16,32 @@ export interface LoginResult {
   message?: string
 }
 
+export interface RequirementIntakeRecord {
+  id: number
+  requirementId: number
+  roleSummary: string
+  whyRoleOpen: string
+  mustHaveSkills: string
+  goodToHaveSkills: string
+  primarySkills: string
+  secondarySkills: string
+  targetCompanies: string
+  companiesToAvoid: string
+  minimumExperience: string
+  maximumExperience: string
+  salaryRange: string
+  noticePeriodPreference: string
+  interviewProcess: string
+  diversityFocus: string
+  candidateSellingPoints: string
+  keyChallenges: string
+  hiringManagerExpectations: string
+  additionalNotes: string
+  updatedAt: string
+}
+
+export type RequirementIntakeInput = Omit<RequirementIntakeRecord, 'id' | 'requirementId' | 'updatedAt'>
+
 export interface RequirementRecord {
   id: number
   reqId: string
@@ -31,9 +57,10 @@ export interface RequirementRecord {
   recruiterOwner: string
   assignedSourcer: string
   status: RequirementStatus
+  intake?: RequirementIntakeRecord
 }
 
-export type RequirementInput = Omit<RequirementRecord, 'id'>
+export type RequirementInput = Omit<RequirementRecord, 'id' | 'intake'>
 
 export interface CandidateRecord {
   id: number
