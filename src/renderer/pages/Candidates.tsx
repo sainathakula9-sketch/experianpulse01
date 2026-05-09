@@ -1,7 +1,14 @@
-import { ClipboardCheck, History, Pencil, PlusCircle, Trash2 } from 'lucide-react'
+import { ClipboardCheck, Download, History, Pencil, PlusCircle, Trash2, Upload } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, RequirementRecord } from '../../shared/types'
+import { exportCandidatesForRequirement, parseCandidateImportFile } from '../utils/excel'
+
+
+interface ImportSummary {
+  imported: number
+  errors: string[]
+}
 
 interface CandidatesProps {
   candidates: CandidateRecord[]
@@ -139,6 +146,9 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
   const [formError, setFormError] = useState<string | undefined>()
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | undefined>()
   const [filters, setFilters] = useState({ status: '', sourcer: '', sourceChannel: '', location: '' })
+  const [excelRequirementId, setExcelRequirementId] = useState<number>(requirements[0]?.id ?? 0)
+  const [importSummary, setImportSummary] = useState<ImportSummary | undefined>()
+  const [isImporting, setIsImporting] = useState(false)
 
   const filterOptions = useMemo(
     () => ({
@@ -164,6 +174,16 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
           (!filters.location || candidate.location === filters.location)
       ),
     [candidates, filters]
+  )
+
+  const excelRequirement = useMemo(
+    () => requirements.find((requirement) => requirement.id === excelRequirementId) ?? requirements[0],
+    [excelRequirementId, requirements]
+  )
+
+  const excelCandidates = useMemo(
+    () => (excelRequirement ? candidates.filter((candidate) => candidate.requirementId === excelRequirement.id) : []),
+    [candidates, excelRequirement]
   )
 
   const resetForm = (): void => {
@@ -220,6 +240,52 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
     onCandidatesChange()
   }
 
+  const exportRequirementCandidates = (): void => {
+    if (!excelRequirement) {
+      return
+    }
+
+    exportCandidatesForRequirement(excelRequirement, excelCandidates)
+  }
+
+  const importCandidates = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const [file] = Array.from(event.target.files ?? [])
+    event.target.value = ''
+
+    if (!file || !excelRequirement) {
+      return
+    }
+
+    setIsImporting(true)
+    setImportSummary(undefined)
+
+    try {
+      const preview = await parseCandidateImportFile(file, excelRequirement)
+      if (preview.errors.length > 0) {
+        setImportSummary({ imported: 0, errors: preview.errors })
+        return
+      }
+
+      let imported = 0
+      const errors: string[] = []
+      for (const [index, candidate] of preview.rows.entries()) {
+        try {
+          await window.experianPulse.createCandidate(candidate)
+          imported += 1
+        } catch (error) {
+          errors.push(`Row ${index + 2}: ${error instanceof Error ? error.message : 'Unable to import candidate.'}`)
+        }
+      }
+
+      setImportSummary({ imported, errors })
+      onCandidatesChange()
+    } catch (error) {
+      setImportSummary({ imported: 0, errors: [error instanceof Error ? error.message : 'Unable to read Excel file.'] })
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
   return (
     <section className="grid grid-cols-[minmax(0,1fr)_420px] gap-6">
       <article className="rounded-3xl bg-white p-6 shadow-sm">
@@ -230,6 +296,43 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
           </div>
           <span className="rounded-full bg-experian-blue/10 px-3 py-1 text-xs font-bold text-experian-blue">{filteredCandidates.length} shown</span>
         </div>
+
+        <div className="mb-5 grid gap-3 rounded-2xl bg-slate-50 p-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+          <label className="text-xs font-bold uppercase tracking-[0.12em] text-experian-slate">
+            Excel requirement
+            <select
+              className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold normal-case tracking-normal text-experian-ink outline-none"
+              onChange={(event) => setExcelRequirementId(Number(event.target.value))}
+              value={excelRequirement?.id ?? 0}
+            >
+              {requirements.map((requirement) => <option key={requirement.id} value={requirement.id}>{requirement.reqId} · {requirement.roleTitle}</option>)}
+            </select>
+          </label>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-experian-slate disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!excelRequirement}
+            onClick={exportRequirementCandidates}
+            type="button"
+          >
+            <Download size={16} /> Export candidates
+          </button>
+          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-experian-purple px-4 py-2 text-sm font-bold text-white has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
+            <Upload size={16} /> {isImporting ? 'Importing...' : 'Import candidates'}
+            <input accept=".xlsx,.xls" className="sr-only" disabled={!excelRequirement || isImporting} onChange={importCandidates} type="file" />
+          </label>
+        </div>
+
+        {importSummary && (
+          <div className={`mb-5 rounded-2xl px-4 py-3 text-sm font-semibold ${importSummary.errors.length > 0 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+            <p>{importSummary.imported} candidate{importSummary.imported === 1 ? '' : 's'} imported into {excelRequirement?.reqId ?? 'the selected requirement'}.</p>
+            {importSummary.errors.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {importSummary.errors.slice(0, 8).map((error) => <li key={error}>{error}</li>)}
+                {importSummary.errors.length > 8 && <li>{importSummary.errors.length - 8} more error(s).</li>}
+              </ul>
+            )}
+          </div>
+        )}
 
         <div className="mb-5 grid grid-cols-4 gap-3 rounded-2xl bg-slate-50 p-4">
           <select className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none" onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} value={filters.status}>

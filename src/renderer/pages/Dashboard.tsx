@@ -17,7 +17,9 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
+import { Download } from 'lucide-react'
 import type { AuthenticatedUser, CandidateRecord, CandidateStatus, PulseSnapshot, RequirementRecord, RequirementStatus } from '../../shared/types'
+import { exportDashboardMetrics } from '../utils/excel'
 
 interface DashboardProps {
   snapshot: PulseSnapshot
@@ -345,13 +347,22 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
               Live dashboard from the local SQLite workspace with filters for date range, recruiter, sourcer, business unit, and role or candidate status.
             </p>
           </div>
-          <button
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-experian-slate transition hover:border-experian-magenta/40 hover:text-experian-magenta"
-            onClick={() => setFilters({ startDate: '', endDate: '', recruiter: '', sourcer: '', businessUnit: '', status: '' })}
-            type="button"
-          >
-            Reset filters
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              className="inline-flex items-center gap-2 rounded-2xl bg-experian-purple px-4 py-3 text-sm font-bold text-white transition hover:bg-experian-purple/90"
+              onClick={() => exportDashboardMetrics({ ...snapshot, requirements: filteredRequirements, candidates: filteredCandidates }, cards)}
+              type="button"
+            >
+              <Download size={16} /> Export metrics
+            </button>
+            <button
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-experian-slate transition hover:border-experian-magenta/40 hover:text-experian-magenta"
+              onClick={() => setFilters({ startDate: '', endDate: '', recruiter: '', sourcer: '', businessUnit: '', status: '' })}
+              type="button"
+            >
+              Reset filters
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-4 xl:grid-cols-6">
