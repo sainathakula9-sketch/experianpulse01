@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import type { AuthenticatedUser, CandidateRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementRecord, UserRole } from '../shared/types'
+import type { AuthenticatedUser, CandidateRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, UserRole } from '../shared/types'
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -183,6 +183,31 @@ function initialiseSchema(database: Database.Database): void {
       recruiterOwner TEXT NOT NULL,
       assignedSourcer TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('Open', 'On Hold', 'Closed', 'Cancelled'))
+    );
+
+    CREATE TABLE IF NOT EXISTS requirement_intake (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      requirementId INTEGER NOT NULL UNIQUE,
+      roleSummary TEXT NOT NULL DEFAULT '',
+      whyRoleOpen TEXT NOT NULL DEFAULT '',
+      mustHaveSkills TEXT NOT NULL DEFAULT '',
+      goodToHaveSkills TEXT NOT NULL DEFAULT '',
+      primarySkills TEXT NOT NULL DEFAULT '',
+      secondarySkills TEXT NOT NULL DEFAULT '',
+      targetCompanies TEXT NOT NULL DEFAULT '',
+      companiesToAvoid TEXT NOT NULL DEFAULT '',
+      minimumExperience TEXT NOT NULL DEFAULT '',
+      maximumExperience TEXT NOT NULL DEFAULT '',
+      salaryRange TEXT NOT NULL DEFAULT '',
+      noticePeriodPreference TEXT NOT NULL DEFAULT '',
+      interviewProcess TEXT NOT NULL DEFAULT '',
+      diversityFocus TEXT NOT NULL DEFAULT '',
+      candidateSellingPoints TEXT NOT NULL DEFAULT '',
+      keyChallenges TEXT NOT NULL DEFAULT '',
+      hiringManagerExpectations TEXT NOT NULL DEFAULT '',
+      additionalNotes TEXT NOT NULL DEFAULT '',
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (requirementId) REFERENCES requirements(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS candidates (
@@ -452,9 +477,137 @@ export function updateRequirement(id: number, input: RequirementInput, user?: Au
   return updatedRequirement
 }
 
+
+function normalizeIntakeInput(input: RequirementIntakeInput): RequirementIntakeInput {
+  return {
+    roleSummary: input.roleSummary.trim(),
+    whyRoleOpen: input.whyRoleOpen.trim(),
+    mustHaveSkills: input.mustHaveSkills.trim(),
+    goodToHaveSkills: input.goodToHaveSkills.trim(),
+    primarySkills: input.primarySkills.trim(),
+    secondarySkills: input.secondarySkills.trim(),
+    targetCompanies: input.targetCompanies.trim(),
+    companiesToAvoid: input.companiesToAvoid.trim(),
+    minimumExperience: input.minimumExperience.trim(),
+    maximumExperience: input.maximumExperience.trim(),
+    salaryRange: input.salaryRange.trim(),
+    noticePeriodPreference: input.noticePeriodPreference.trim(),
+    interviewProcess: input.interviewProcess.trim(),
+    diversityFocus: input.diversityFocus.trim(),
+    candidateSellingPoints: input.candidateSellingPoints.trim(),
+    keyChallenges: input.keyChallenges.trim(),
+    hiringManagerExpectations: input.hiringManagerExpectations.trim(),
+    additionalNotes: input.additionalNotes.trim()
+  }
+}
+
+function attachIntakeToRequirements(database: Database.Database, requirements: RequirementRecord[]): RequirementRecord[] {
+  if (requirements.length === 0) {
+    return requirements
+  }
+
+  const intakeRows = database.prepare('SELECT * FROM requirement_intake').all() as RequirementIntakeRecord[]
+  const intakeByRequirementId = new Map(intakeRows.map((intake) => [intake.requirementId, intake]))
+
+  return requirements.map((requirement) => ({
+    ...requirement,
+    intake: intakeByRequirementId.get(requirement.id)
+  }))
+}
+
+export function upsertRequirementIntake(requirementId: number, input: RequirementIntakeInput, user?: AuthenticatedUser): RequirementIntakeRecord {
+  if (!user) {
+    throw new Error('You must be logged in to save intake notes.')
+  }
+
+  const database = connectDatabase()
+  const requirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(requirementId) as RequirementRecord | undefined
+  if (!requirement) {
+    throw new Error('Requirement not found.')
+  }
+
+  const [accessibleRequirement] = filterByUser([requirement], user)
+  if (!accessibleRequirement) {
+    throw new Error('You do not have access to this requirement.')
+  }
+
+  const intake = normalizeIntakeInput(input)
+  const updatedAt = new Date().toISOString()
+
+  database
+    .prepare(
+      `INSERT INTO requirement_intake (
+         requirementId,
+         roleSummary,
+         whyRoleOpen,
+         mustHaveSkills,
+         goodToHaveSkills,
+         primarySkills,
+         secondarySkills,
+         targetCompanies,
+         companiesToAvoid,
+         minimumExperience,
+         maximumExperience,
+         salaryRange,
+         noticePeriodPreference,
+         interviewProcess,
+         diversityFocus,
+         candidateSellingPoints,
+         keyChallenges,
+         hiringManagerExpectations,
+         additionalNotes,
+         updatedAt
+       ) VALUES (
+         @requirementId,
+         @roleSummary,
+         @whyRoleOpen,
+         @mustHaveSkills,
+         @goodToHaveSkills,
+         @primarySkills,
+         @secondarySkills,
+         @targetCompanies,
+         @companiesToAvoid,
+         @minimumExperience,
+         @maximumExperience,
+         @salaryRange,
+         @noticePeriodPreference,
+         @interviewProcess,
+         @diversityFocus,
+         @candidateSellingPoints,
+         @keyChallenges,
+         @hiringManagerExpectations,
+         @additionalNotes,
+         @updatedAt
+       )
+       ON CONFLICT(requirementId) DO UPDATE SET
+         roleSummary = excluded.roleSummary,
+         whyRoleOpen = excluded.whyRoleOpen,
+         mustHaveSkills = excluded.mustHaveSkills,
+         goodToHaveSkills = excluded.goodToHaveSkills,
+         primarySkills = excluded.primarySkills,
+         secondarySkills = excluded.secondarySkills,
+         targetCompanies = excluded.targetCompanies,
+         companiesToAvoid = excluded.companiesToAvoid,
+         minimumExperience = excluded.minimumExperience,
+         maximumExperience = excluded.maximumExperience,
+         salaryRange = excluded.salaryRange,
+         noticePeriodPreference = excluded.noticePeriodPreference,
+         interviewProcess = excluded.interviewProcess,
+         diversityFocus = excluded.diversityFocus,
+         candidateSellingPoints = excluded.candidateSellingPoints,
+         keyChallenges = excluded.keyChallenges,
+         hiringManagerExpectations = excluded.hiringManagerExpectations,
+         additionalNotes = excluded.additionalNotes,
+         updatedAt = excluded.updatedAt`
+    )
+    .run({ ...intake, requirementId, updatedAt })
+
+  return database.prepare('SELECT * FROM requirement_intake WHERE requirementId = ?').get(requirementId) as RequirementIntakeRecord
+}
+
 export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   const database = connectDatabase()
-  const allRequirements = database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[]
+  const allRequirements = attachIntakeToRequirements(database, database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[])
   const allCandidates = database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as CandidateRecord[]
   const reports = database.prepare('SELECT * FROM reports ORDER BY updatedAt DESC').all() as ReportRecord[]
   const settingsRow = database.prepare('SELECT * FROM settings WHERE id = 1').get() as {
