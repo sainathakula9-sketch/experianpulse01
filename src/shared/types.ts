@@ -2,7 +2,8 @@ export type RequirementStatus = 'Open' | 'On Hold' | 'Closed' | 'Cancelled'
 export type RequirementPriority = 'Low' | 'Medium' | 'High' | 'Critical'
 export type WorkMode = 'Onsite' | 'Hybrid' | 'Remote'
 export type UserRole = 'Admin' | 'Recruiter' | 'Sourcer'
-export type CandidateStatus = 'New Profile' | 'Contacted' | 'Interested' | 'Not Interested' | 'Screen Shortlisted' | 'Screen Rejected' | 'HM Shortlisted' | 'Interview 1 Scheduled' | 'Interview 1 Selected' | 'Interview 1 Rejected' | 'Interview 2 Scheduled' | 'Interview 2 Selected' | 'Final Round' | 'Offer Discussion' | 'Offer Released' | 'Offer Accepted' | 'Offer Dropped' | 'Joined'
+export type BackupFrequency = 'Daily' | 'Weekly' | 'Monthly'
+export type CandidateStatus = string
 
 export interface AuthenticatedUser {
   id: number
@@ -138,6 +139,7 @@ export interface ReportRecord {
 export type BackupStatusLevel = 'Never Run' | 'Success' | 'Warning' | 'Failed' | 'Restored'
 
 export interface BackupSettingsRecord {
+  defaultBackupFolder: string
   oneDriveBackupFolder: string
   localBackupFolder: string
   lastBackupAt: string
@@ -152,10 +154,34 @@ export interface BackupResult extends BackupSettingsRecord {
   oneDriveBackupPath?: string
 }
 
+export interface UserManagementRecord extends AuthenticatedUser {}
+
 export interface SettingsRecord extends BackupSettingsRecord {
   organizationName: string
   dataRegion: string
   notificationsEnabled: boolean
+  backupFrequency: BackupFrequency
+  defaultCurrency: string
+  defaultLocation: string
+  users: UserManagementRecord[]
+  sourceChannels: string[]
+  candidateStatuses: string[]
+}
+
+export interface WorkspaceSettingsInput {
+  organizationName: string
+  defaultBackupFolder: string
+  oneDriveBackupFolder: string
+  backupFrequency: BackupFrequency
+  defaultCurrency: string
+  defaultLocation: string
+}
+
+export interface UserManagementInput {
+  username: string
+  displayName: string
+  role: UserRole
+  password?: string
 }
 
 export interface PulseSnapshot {

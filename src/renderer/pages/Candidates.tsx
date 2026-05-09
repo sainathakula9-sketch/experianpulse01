@@ -1,7 +1,7 @@
 import { ClipboardCheck, Download, History, Pencil, PlusCircle, Trash2, Upload } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, RequirementRecord } from '../../shared/types'
+import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, RequirementRecord, SettingsRecord } from '../../shared/types'
 import { exportCandidatesForRequirement, parseCandidateImportFile } from '../utils/excel'
 
 
@@ -15,9 +15,10 @@ interface CandidatesProps {
   onCandidatesChange: () => void
   requirements: RequirementRecord[]
   user: AuthenticatedUser
+  settings: SettingsRecord
 }
 
-const candidateStatuses: CandidateStatus[] = [
+const fallbackCandidateStatuses: CandidateStatus[] = [
   'New Profile',
   'Contacted',
   'Interested',
@@ -139,13 +140,14 @@ function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-export function Candidates({ candidates, onCandidatesChange, requirements, user }: CandidatesProps): JSX.Element {
+export function Candidates({ candidates, onCandidatesChange, requirements, settings, user }: CandidatesProps): JSX.Element {
   const [candidateForm, setCandidateForm] = useState<CandidateInput>(() => createDefaultCandidate(requirements, user))
   const [editingCandidateId, setEditingCandidateId] = useState<number | undefined>()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | undefined>()
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | undefined>()
   const [filters, setFilters] = useState({ status: '', sourcer: '', sourceChannel: '', location: '' })
+  const candidateStatuses = settings.candidateStatuses.length > 0 ? settings.candidateStatuses : fallbackCandidateStatuses
   const [excelRequirementId, setExcelRequirementId] = useState<number>(requirements[0]?.id ?? 0)
   const [importSummary, setImportSummary] = useState<ImportSummary | undefined>()
   const [isImporting, setIsImporting] = useState(false)
@@ -417,7 +419,12 @@ export function Candidates({ candidates, onCandidatesChange, requirements, user 
             {textFields.map(({ key, label, multiline, required, type }) => (
               <label className={`${multiline ? 'col-span-2' : ''} text-sm font-semibold text-experian-slate`} key={key}>
                 {label}
-                {multiline ? (
+                {key === 'sourceChannel' && settings.sourceChannels.length > 0 ? (
+                  <select className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField(key, event.target.value as never)} required={required} value={candidateForm[key] as string}>
+                    <option value="">Select source channel</option>
+                    {settings.sourceChannels.map((source) => <option key={source}>{source}</option>)}
+                  </select>
+                ) : multiline ? (
                   <textarea className="mt-2 min-h-20 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField(key, event.target.value as never)} required={required} value={candidateForm[key] as string} />
                 ) : (
                   <input className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField(key, event.target.value as never)} required={required} type={type ?? 'text'} value={candidateForm[key] as string} />

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AuthenticatedUser, CandidateInput, CandidateRecord, LoginResult, PulseSnapshot, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, BackupResult, BackupSettingsRecord } from '../shared/types'
+import type { AuthenticatedUser, CandidateInput, CandidateRecord, LoginResult, PulseSnapshot, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, BackupResult, BackupSettingsRecord, UserManagementInput, WorkspaceSettingsInput } from '../shared/types'
 
 const api = {
   login: (username: string, password: string): Promise<LoginResult> => ipcRenderer.invoke('auth:login', { username, password }),
@@ -16,7 +16,15 @@ const api = {
   setOneDriveBackupFolder: (folderPath: string): Promise<BackupSettingsRecord> => ipcRenderer.invoke('backup:setOneDriveFolder', folderPath),
   runBackupNow: (): Promise<BackupResult> => ipcRenderer.invoke('backup:runNow'),
   chooseRestoreBackupZip: (): Promise<string> => ipcRenderer.invoke('backup:chooseRestoreZip'),
-  restoreBackup: (zipPath: string): Promise<BackupResult> => ipcRenderer.invoke('backup:restore', zipPath)
+  restoreBackup: (zipPath: string): Promise<BackupResult> => ipcRenderer.invoke('backup:restore', zipPath),
+  updateWorkspaceSettings: (settings: WorkspaceSettingsInput): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:updateWorkspace', settings),
+  createUser: (user: UserManagementInput): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:createUser', user),
+  updateUser: (id: number, user: UserManagementInput): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:updateUser', { id, user }),
+  deleteUser: (id: number): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:deleteUser', id),
+  addSourceChannel: (name: string): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:addSourceChannel', name),
+  deleteSourceChannel: (name: string): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:deleteSourceChannel', name),
+  addCandidateStatus: (name: string): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:addCandidateStatus', name),
+  deleteCandidateStatus: (name: string): Promise<PulseSnapshot> => ipcRenderer.invoke('settings:deleteCandidateStatus', name),
 }
 
 contextBridge.exposeInMainWorld('experianPulse', api)

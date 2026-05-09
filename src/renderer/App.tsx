@@ -107,11 +107,18 @@ const fallbackSnapshot: PulseSnapshot = {
     organizationName: 'Experian Pulse Demo',
     dataRegion: 'United States',
     notificationsEnabled: true,
+    defaultBackupFolder: '',
     oneDriveBackupFolder: '',
     localBackupFolder: '',
     lastBackupAt: '',
     lastBackupStatus: 'Never Run',
-    lastBackupPath: ''
+    lastBackupPath: '',
+    backupFrequency: 'Daily',
+    defaultCurrency: 'USD',
+    defaultLocation: 'United States',
+    users: [],
+    sourceChannels: [],
+    candidateStatuses: []
   },
   metrics: {
     complianceScore: 92,
@@ -180,11 +187,11 @@ function App(): JSX.Element {
       case 'requirements':
         return <Requirements candidates={snapshot.candidates} onRequirementsChange={refreshSnapshot} requirements={snapshot.requirements} user={currentUser} />
       case 'candidates':
-        return <Candidates candidates={snapshot.candidates} onCandidatesChange={refreshSnapshot} requirements={snapshot.requirements} user={currentUser} />
+        return <Candidates candidates={snapshot.candidates} onCandidatesChange={refreshSnapshot} requirements={snapshot.requirements} settings={snapshot.settings} user={currentUser} />
       case 'reports':
         return <Reports reports={snapshot.reports} />
       case 'settings':
-        return <SettingsPage onSettingsChange={refreshSnapshot} settings={snapshot.settings} />
+        return <SettingsPage onSettingsChange={refreshSnapshot} settings={snapshot.settings} user={currentUser} />
       case 'dashboard':
       default:
         return <Dashboard snapshot={snapshot} user={currentUser} />
