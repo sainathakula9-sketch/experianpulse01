@@ -234,10 +234,22 @@ export function connectDatabase(): Database.Database {
   return db
 }
 
+const sqliteIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+function assertSafeSqlIdentifier(identifier: string): string {
+  if (!sqliteIdentifierPattern.test(identifier)) {
+    throw new Error(`Unsafe SQLite identifier: ${identifier}`)
+  }
+
+  return identifier
+}
+
 function addColumnIfMissing(database: Database.Database, tableName: string, columnName: string, definition: string): void {
-  const columns = database.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>
-  if (!columns.some((column) => column.name === columnName)) {
-    database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`)
+  const safeTableName = assertSafeSqlIdentifier(tableName)
+  const safeColumnName = assertSafeSqlIdentifier(columnName)
+  const columns = database.prepare(`PRAGMA table_info(${safeTableName})`).all() as Array<{ name: string }>
+  if (!columns.some((column) => column.name === safeColumnName)) {
+    database.exec(`ALTER TABLE ${safeTableName} ADD COLUMN ${safeColumnName} ${definition}`)
   }
 }
 
@@ -914,6 +926,15 @@ function filterByUser<T extends { recruiterOwner?: string; assignedRecruiter?: s
   return items.filter((item) => item.assignedSourcer === user.username)
 }
 
+function normalizeDateInput(value: string, label: string): string {
+  const trimmedValue = value.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
+    throw new Error(`${label} must use YYYY-MM-DD format.`)
+  }
+
+  return trimmedValue
+}
+
 function normalizeRequirementInput(input: RequirementInput, user?: AuthenticatedUser): RequirementInput {
   return {
     reqId: input.reqId.trim(),
@@ -925,7 +946,7 @@ function normalizeRequirementInput(input: RequirementInput, user?: Authenticated
     workMode: input.workMode,
     budgetRange: input.budgetRange.trim(),
     priority: input.priority,
-    targetClosureDate: input.targetClosureDate,
+    targetClosureDate: normalizeDateInput(input.targetClosureDate, 'Target closure date'),
     recruiterOwner: input.recruiterOwner.trim() || user?.username || 'recruiter',
     assignedSourcer: input.assignedSourcer.trim() || 'sourcer',
     status: input.status
@@ -935,6 +956,12 @@ function normalizeRequirementInput(input: RequirementInput, user?: Authenticated
 function assertCanManageRequirements(user?: AuthenticatedUser): void {
   if (!user || (user.role !== 'Admin' && user.role !== 'Recruiter')) {
     throw new Error('Only admins and recruiters can manage requirements.')
+  }
+}
+
+function assertPositiveInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a valid positive integer.`)
   }
 }
 
@@ -989,6 +1016,7 @@ export function createRequirement(input: RequirementInput, user?: AuthenticatedU
 }
 
 export function updateRequirement(id: number, input: RequirementInput, user?: AuthenticatedUser): RequirementRecord {
+  assertPositiveInteger(id, 'Requirement ID')
   assertCanManageRequirements(user)
   const database = connectDatabase()
   const requirement = normalizeRequirementInput(input, user)
@@ -1034,6 +1062,7 @@ export function updateRequirement(id: number, input: RequirementInput, user?: Au
 }
 
 export function deleteRequirement(id: number, user?: AuthenticatedUser): boolean {
+  assertPositiveInteger(id, 'Requirement ID')
   assertCanManageRequirements(user)
   const database = connectDatabase()
   const requirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord | undefined
@@ -1109,6 +1138,7 @@ function assertCanAccessRequirement(database: Database.Database, requirementId: 
 }
 
 export function upsertRequirementIntake(requirementId: number, input: RequirementIntakeInput, user?: AuthenticatedUser): RequirementIntakeRecord {
+  assertPositiveInteger(requirementId, 'Requirement ID')
   if (!user) {
     throw new Error('You must be logged in to save intake notes.')
   }
@@ -1207,6 +1237,7 @@ function normalizeSearchStringInput(input: RequirementSearchStringInput): Requir
 }
 
 export function upsertRequirementSearchStrings(requirementId: number, input: RequirementSearchStringInput, user?: AuthenticatedUser): RequirementSearchStringRecord {
+  assertPositiveInteger(requirementId, 'Requirement ID')
   if (!user) {
     throw new Error('You must be logged in to save search strings.')
   }
@@ -1413,6 +1444,7 @@ export function createCandidate(input: CandidateInput, user?: AuthenticatedUser)
 }
 
 export function updateCandidate(id: number, input: CandidateInput, user?: AuthenticatedUser): CandidateRecord {
+  assertPositiveInteger(id, 'Candidate ID')
   if (!user) {
     throw new Error('You must be logged in to update candidates.')
   }
@@ -1475,6 +1507,7 @@ export function updateCandidate(id: number, input: CandidateInput, user?: Authen
 }
 
 export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
+  assertPositiveInteger(id, 'Candidate ID')
   if (!user) {
     throw new Error('You must be logged in to delete candidates.')
   }

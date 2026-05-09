@@ -314,8 +314,19 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
       return
     }
 
-    setIsSubmitting(true)
     setFormError(undefined)
+    const missingField = Object.entries(formRequirement).find(([, value]) => !String(value).trim())
+    if (missingField) {
+      setFormError(`Complete the ${missingField[0]} field before saving.`)
+      return
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(formRequirement.targetClosureDate)) {
+      setFormError('Target closure date must use YYYY-MM-DD format.')
+      return
+    }
+
+    setIsSubmitting(true)
 
     try {
       const savedRequirement = editingRequirementId
@@ -400,7 +411,12 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
       return
     }
 
-    await window.experianPulse.deleteRequirement(requirement.id)
+    try {
+      await window.experianPulse.deleteRequirement(requirement.id)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to delete requirement.')
+      return
+    }
     if (selectedRequirementId === requirement.id) {
       setSelectedRequirementId(undefined)
     }
@@ -427,7 +443,7 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-4 gap-5">
+      <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map(({ accent, icon: Icon, label, value }) => (
           <article className="rounded-3xl bg-white p-5 shadow-sm" key={label}>
             <div className="flex items-center justify-between">
@@ -439,7 +455,7 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
         ))}
       </section>
 
-      <section className="grid grid-cols-[minmax(0,1fr)_420px] gap-6">
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <article className="rounded-3xl bg-white p-6 shadow-sm">
           <div className="mb-6 flex items-center justify-between gap-4">
             <div>
@@ -458,8 +474,12 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
             </button>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            {requirements.map((requirement) => {
+          <div className="grid gap-4 lg:grid-cols-2">
+            {requirements.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm font-semibold text-experian-slate lg:col-span-2">
+                No requirements are available for your role yet. Create a requirement to start sourcing.
+              </div>
+            ) : requirements.map((requirement) => {
               const selected = selectedRequirement?.id === requirement.id
               return (
                 <article
@@ -760,7 +780,7 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm font-semibold text-experian-slate">
                   Req ID
                   <input className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField('reqId', event.target.value)} required value={formRequirement.reqId} />
@@ -817,7 +837,7 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
                   Assigned Sourcer
                   <input className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField('assignedSourcer', event.target.value)} required value={formRequirement.assignedSourcer} />
                 </label>
-                <label className="col-span-2 text-sm font-semibold text-experian-slate">
+                <label className="sm:col-span-2 text-sm font-semibold text-experian-slate">
                   Status
                   <select className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-experian-blue/20 focus:ring-4" onChange={(event) => updateField('status', event.target.value as RequirementStatus)} value={formRequirement.status}>
                     {statusOptions.map((status) => (
