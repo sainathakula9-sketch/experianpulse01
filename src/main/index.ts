@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { authenticateUser, closeDatabase, connectDatabase, createCandidate, createRequirement, deleteCandidate, getPulseSnapshot, restoreFromBackup, runBackupNow, runStartupBackup, updateCandidate, updateOneDriveBackupFolder, updateRequirement, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
+import { addCandidateStatus, addSourceChannel, authenticateUser, closeDatabase, connectDatabase, createCandidate, createRequirement, createUser, deleteCandidate, deleteCandidateStatus, deleteSourceChannel, deleteUser, getPulseSnapshot, restoreFromBackup, runBackupNow, runStartupBackup, updateCandidate, updateOneDriveBackupFolder, updateRequirement, updateUser, updateWorkspaceSettings, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
 import { chooseBackupZip, chooseOneDriveBackupFolder, getDailyBackupDirectory } from './backup'
-import type { CandidateInput, RequirementInput, RequirementIntakeInput, RequirementSearchStringInput } from '../shared/types'
+import type { CandidateInput, RequirementInput, RequirementIntakeInput, RequirementSearchStringInput, UserManagementInput, WorkspaceSettingsInput } from '../shared/types'
 
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
 let currentUser: ReturnType<typeof authenticateUser>['user']
@@ -56,6 +56,15 @@ app.whenReady().then(() => {
   ipcMain.handle('requirements:saveSearchStrings', (_event, payload: { requirementId: number; searchStrings: RequirementSearchStringInput }) =>
     upsertRequirementSearchStrings(payload.requirementId, payload.searchStrings, currentUser)
   )
+
+  ipcMain.handle('settings:updateWorkspace', (_event, settings: WorkspaceSettingsInput) => updateWorkspaceSettings(settings, currentUser))
+  ipcMain.handle('settings:createUser', (_event, user: UserManagementInput) => createUser(user, currentUser))
+  ipcMain.handle('settings:updateUser', (_event, payload: { id: number; user: UserManagementInput }) => updateUser(payload.id, payload.user, currentUser))
+  ipcMain.handle('settings:deleteUser', (_event, id: number) => deleteUser(id, currentUser))
+  ipcMain.handle('settings:addSourceChannel', (_event, name: string) => addSourceChannel(name, currentUser))
+  ipcMain.handle('settings:deleteSourceChannel', (_event, name: string) => deleteSourceChannel(name, currentUser))
+  ipcMain.handle('settings:addCandidateStatus', (_event, name: string) => addCandidateStatus(name, currentUser))
+  ipcMain.handle('settings:deleteCandidateStatus', (_event, name: string) => deleteCandidateStatus(name, currentUser))
   ipcMain.handle('backup:chooseOneDriveFolder', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? undefined
     const settings = await chooseOneDriveBackupFolder(database, window)

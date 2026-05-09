@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3'
 export type BackupStatusLevel = 'Never Run' | 'Success' | 'Warning' | 'Failed' | 'Restored'
 
 export interface BackupSettings {
+  defaultBackupFolder: string
   oneDriveBackupFolder: string
   lastBackupAt: string
   lastBackupStatus: string
@@ -43,8 +44,8 @@ function getTodayKey(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function getDailyBackupPath(dateKey = getTodayKey()): string {
-  return join(getDailyBackupDirectory(), `experian-pulse-backup-${dateKey}.zip`)
+function getDailyBackupPath(dateKey = getTodayKey(), backupDirectory = getDailyBackupDirectory()): string {
+  return join(backupDirectory, `experian-pulse-backup-${dateKey}.zip`)
 }
 
 function normaliseZipPath(path: string): string {
@@ -198,8 +199,9 @@ function readZip(buffer: Buffer): Map<string, Buffer> {
 }
 
 function getBackupSettings(database: Database.Database): BackupSettings {
-  const row = database.prepare('SELECT oneDriveBackupFolder, lastBackupAt, lastBackupStatus, lastBackupPath FROM settings WHERE id = 1').get() as BackupSettings | undefined
+  const row = database.prepare('SELECT defaultBackupFolder, oneDriveBackupFolder, lastBackupAt, lastBackupStatus, lastBackupPath FROM settings WHERE id = 1').get() as BackupSettings | undefined
   return {
+    defaultBackupFolder: row?.defaultBackupFolder ?? getDailyBackupDirectory(),
     oneDriveBackupFolder: row?.oneDriveBackupFolder ?? '',
     lastBackupAt: row?.lastBackupAt ?? '',
     lastBackupStatus: row?.lastBackupStatus ?? 'Never Run',
@@ -241,7 +243,7 @@ export async function chooseOneDriveBackupFolder(database: Database.Database, wi
 }
 
 function collectConfigEntries(database: Database.Database): ZipEntry[] {
-  const settings = database.prepare('SELECT organizationName, dataRegion, notificationsEnabled, oneDriveBackupFolder FROM settings WHERE id = 1').get()
+  const settings = database.prepare('SELECT organizationName, dataRegion, notificationsEnabled, defaultBackupFolder, oneDriveBackupFolder, backupFrequency, defaultCurrency, defaultLocation FROM settings WHERE id = 1').get()
   const entries: ZipEntry[] = [
     {
       name: 'config/app-settings.json',
@@ -283,12 +285,12 @@ async function createDatabaseSnapshot(database: Database.Database, destination: 
 }
 
 export async function createBackup(database: Database.Database, reason = 'Manual'): Promise<BackupResult> {
-  const backupDirectory = getDailyBackupDirectory()
+  const settings = getBackupSettings(database)
+  const backupDirectory = settings.defaultBackupFolder || getDailyBackupDirectory()
   mkdirSync(backupDirectory, { recursive: true })
 
-  const localBackupPath = getDailyBackupPath()
+  const localBackupPath = getDailyBackupPath(getTodayKey(), backupDirectory)
   const temporaryDatabasePath = join(backupDirectory, `experian-pulse-${Date.now()}.sqlite`)
-  const settings = getBackupSettings(database)
 
   try {
     await createDatabaseSnapshot(database, temporaryDatabasePath)
@@ -331,7 +333,8 @@ export async function createBackup(database: Database.Database, reason = 'Manual
 }
 
 export async function createStartupBackupIfNeeded(database: Database.Database): Promise<BackupResult | undefined> {
-  const localBackupPath = getDailyBackupPath()
+  const settings = getBackupSettings(database)
+  const localBackupPath = getDailyBackupPath(getTodayKey(), settings.defaultBackupFolder || getDailyBackupDirectory())
   if (existsSync(localBackupPath)) {
     return undefined
   }

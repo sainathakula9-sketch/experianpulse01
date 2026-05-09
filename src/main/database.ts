@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, CandidateStatusHistoryRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserRole } from '../shared/types'
+import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, CandidateStatusHistoryRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserManagementInput, UserManagementRecord, UserRole, WorkspaceSettingsInput } from '../shared/types'
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -10,7 +10,7 @@ let db: Database.Database | undefined
 
 const passwordSalt = 'experian-pulse-local-auth'
 
-const candidateStatuses: CandidateStatus[] = [
+export const defaultCandidateStatuses: CandidateStatus[] = [
   'New Profile',
   'Contacted',
   'Interested',
@@ -30,6 +30,18 @@ const candidateStatuses: CandidateStatus[] = [
   'Offer Dropped',
   'Joined'
 ]
+
+const defaultSourceChannels = ['LinkedIn', 'Referral', 'GitHub', 'Naukri', 'Indeed', 'Agency', 'Career Site']
+
+const defaultWorkspaceSettings = {
+  organizationName: 'Experian Talent Acquisition',
+  dataRegion: 'US-East',
+  notificationsEnabled: 1,
+  defaultBackupFolder: '',
+  backupFrequency: 'Daily',
+  defaultCurrency: 'USD',
+  defaultLocation: 'United States'
+}
 
 const defaultUsers: Array<{ username: string; password: string; role: UserRole; displayName: string }> = [
   { username: 'admin', password: 'admin123', role: 'Admin', displayName: 'Pulse Admin' },
@@ -351,10 +363,25 @@ function initialiseSchema(database: Database.Database): void {
       organizationName TEXT NOT NULL,
       dataRegion TEXT NOT NULL,
       notificationsEnabled INTEGER NOT NULL DEFAULT 1,
+      defaultBackupFolder TEXT NOT NULL DEFAULT '',
       oneDriveBackupFolder TEXT NOT NULL DEFAULT '',
+      backupFrequency TEXT NOT NULL DEFAULT 'Daily',
+      defaultCurrency TEXT NOT NULL DEFAULT 'USD',
+      defaultLocation TEXT NOT NULL DEFAULT 'United States',
       lastBackupAt TEXT NOT NULL DEFAULT '',
       lastBackupStatus TEXT NOT NULL DEFAULT 'Never Run',
       lastBackupPath TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS source_channels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS candidate_status_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      sortOrder INTEGER NOT NULL DEFAULT 0
     );
   `)
 
@@ -395,13 +422,18 @@ function initialiseSchema(database: Database.Database): void {
   addColumnIfMissing(database, 'candidates', 'stage', "TEXT NOT NULL DEFAULT 'New Profile'")
   addColumnIfMissing(database, 'candidates', 'remarks', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'candidates', 'followUpDate', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'settings', 'defaultBackupFolder', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'settings', 'oneDriveBackupFolder', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'settings', 'backupFrequency', "TEXT NOT NULL DEFAULT 'Daily'")
+  addColumnIfMissing(database, 'settings', 'defaultCurrency', "TEXT NOT NULL DEFAULT 'USD'")
+  addColumnIfMissing(database, 'settings', 'defaultLocation', "TEXT NOT NULL DEFAULT 'United States'")
   addColumnIfMissing(database, 'settings', 'lastBackupAt', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'settings', 'lastBackupStatus', "TEXT NOT NULL DEFAULT 'Never Run'")
   addColumnIfMissing(database, 'settings', 'lastBackupPath', "TEXT NOT NULL DEFAULT ''")
   migrateLegacyRequirements(database)
   migrateRequirementLifecycleDates(database)
   migrateLegacyCandidates(database)
+  seedConfigOptions(database)
 }
 
 function migrateLegacyRequirements(database: Database.Database): void {
@@ -483,17 +515,35 @@ function migrateLegacyCandidates(database: Database.Database): void {
   `)
 
   rows.forEach((row) => {
-    const status = candidateStatuses.includes(row.stage as CandidateStatus) ? String(row.stage) : String(row.status || 'New Profile')
+    const status = defaultCandidateStatuses.includes(row.stage as CandidateStatus) ? String(row.stage) : String(row.status || 'New Profile')
     updateCandidate.run({
       id: row.id,
       requirementTitle: row.requirementTitle || row.roleTitle || 'Untitled Requirement',
-      status: candidateStatuses.includes(status as CandidateStatus) ? status : 'New Profile',
+      status: defaultCandidateStatuses.includes(status as CandidateStatus) ? status : 'New Profile',
       sourcerName: row.sourcerName || row.assignedSourcer || 'sourcer',
       recruiterName: row.recruiterName || row.assignedRecruiter || 'recruiter',
       assignedRecruiter: row.assignedRecruiter || row.recruiterOwner || 'recruiter',
       assignedSourcer: row.assignedSourcer || row.assignedSourcer || 'sourcer'
     })
   })
+}
+
+function seedConfigOptions(database: Database.Database): void {
+  const insertSourceChannel = database.prepare('INSERT OR IGNORE INTO source_channels (name) VALUES (?)')
+  defaultSourceChannels.forEach((channel) => insertSourceChannel.run(channel))
+
+  const insertCandidateStatus = database.prepare('INSERT OR IGNORE INTO candidate_status_options (name, sortOrder) VALUES (@name, @sortOrder)')
+  defaultCandidateStatuses.forEach((status, index) => insertCandidateStatus.run({ name: status, sortOrder: index }))
+}
+
+function getSourceChannels(database: Database.Database): string[] {
+  const rows = database.prepare('SELECT name FROM source_channels ORDER BY name COLLATE NOCASE').all() as Array<{ name: string }>
+  return rows.map((row) => row.name)
+}
+
+function getCandidateStatuses(database: Database.Database): CandidateStatus[] {
+  const rows = database.prepare('SELECT name FROM candidate_status_options ORDER BY sortOrder ASC, name COLLATE NOCASE').all() as Array<{ name: CandidateStatus }>
+  return rows.map((row) => row.name)
 }
 
 function seedMissingCandidateStatusHistory(database: Database.Database): void {
@@ -586,10 +636,10 @@ function seedMockData(database: Database.Database): void {
 
   database
     .prepare(
-      `INSERT OR IGNORE INTO settings (id, organizationName, dataRegion, notificationsEnabled)
-       VALUES (1, 'Experian Pulse Demo', 'United States', 1)`
+      `INSERT OR IGNORE INTO settings (id, organizationName, dataRegion, notificationsEnabled, defaultBackupFolder, backupFrequency, defaultCurrency, defaultLocation)
+       VALUES (1, @organizationName, @dataRegion, @notificationsEnabled, @defaultBackupFolder, @backupFrequency, @defaultCurrency, @defaultLocation)`
     )
-    .run()
+    .run({ ...defaultWorkspaceSettings, defaultBackupFolder: getDailyBackupDirectory() })
 }
 
 export function authenticateUser(username: string, password: string): LoginResult {
@@ -604,6 +654,163 @@ export function authenticateUser(username: string, password: string): LoginResul
   }
 
   return { success: true, user }
+}
+
+function assertAdmin(user?: AuthenticatedUser): void {
+  if (!user || user.role !== 'Admin') {
+    throw new Error('Only admins can manage users.')
+  }
+}
+
+function normalizeWorkspaceSettings(input: WorkspaceSettingsInput): WorkspaceSettingsInput {
+  if (!['Daily', 'Weekly', 'Monthly'].includes(input.backupFrequency)) {
+    throw new Error('Invalid backup frequency.')
+  }
+
+  return {
+    organizationName: input.organizationName.trim() || 'Experian Pulse',
+    defaultBackupFolder: input.defaultBackupFolder.trim(),
+    oneDriveBackupFolder: input.oneDriveBackupFolder.trim(),
+    backupFrequency: input.backupFrequency,
+    defaultCurrency: input.defaultCurrency.trim().toUpperCase() || 'USD',
+    defaultLocation: input.defaultLocation.trim() || 'United States'
+  }
+}
+
+function normalizeUserInput(input: UserManagementInput): UserManagementInput {
+  const username = input.username.trim().toLowerCase()
+  if (!username) {
+    throw new Error('Username is required.')
+  }
+
+  if (!input.displayName.trim()) {
+    throw new Error('Display name is required.')
+  }
+
+  if (!['Admin', 'Recruiter', 'Sourcer'].includes(input.role)) {
+    throw new Error('Invalid user role.')
+  }
+
+  return {
+    username,
+    displayName: input.displayName.trim(),
+    role: input.role,
+    password: input.password?.trim()
+  }
+}
+
+export function updateWorkspaceSettings(input: WorkspaceSettingsInput, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  const database = connectDatabase()
+  const settings = normalizeWorkspaceSettings(input)
+  database
+    .prepare(
+      `UPDATE settings
+       SET organizationName = @organizationName,
+           defaultBackupFolder = @defaultBackupFolder,
+           oneDriveBackupFolder = @oneDriveBackupFolder,
+           backupFrequency = @backupFrequency,
+           defaultCurrency = @defaultCurrency,
+           defaultLocation = @defaultLocation
+       WHERE id = 1`
+    )
+    .run(settings)
+  return getPulseSnapshot(user)
+}
+
+export function createUser(input: UserManagementInput, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  const database = connectDatabase()
+  const nextUser = normalizeUserInput(input)
+  if (!nextUser.password) {
+    throw new Error('Password is required when creating a user.')
+  }
+
+  database
+    .prepare('INSERT INTO users (username, passwordHash, role, displayName) VALUES (@username, @passwordHash, @role, @displayName)')
+    .run({ ...nextUser, passwordHash: hashPassword(nextUser.password) })
+  return getPulseSnapshot(user)
+}
+
+export function updateUser(id: number, input: UserManagementInput, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  const database = connectDatabase()
+  const nextUser = normalizeUserInput(input)
+  const existingUser = database.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserManagementRecord | undefined
+  if (!existingUser) {
+    throw new Error('User not found.')
+  }
+
+  if (nextUser.password) {
+    database
+      .prepare('UPDATE users SET username = @username, passwordHash = @passwordHash, role = @role, displayName = @displayName WHERE id = @id')
+      .run({ ...nextUser, id, passwordHash: hashPassword(nextUser.password) })
+  } else {
+    database.prepare('UPDATE users SET username = @username, role = @role, displayName = @displayName WHERE id = @id').run({ ...nextUser, id })
+  }
+
+  return getPulseSnapshot(user)
+}
+
+export function deleteUser(id: number, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  if (user?.id === id) {
+    throw new Error('Admins cannot delete their own signed-in account.')
+  }
+
+  const database = connectDatabase()
+  const adminCount = database.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'Admin'").get() as { count: number }
+  const deletingUser = database.prepare('SELECT role FROM users WHERE id = ?').get(id) as { role: UserRole } | undefined
+  if (deletingUser?.role === 'Admin' && adminCount.count <= 1) {
+    throw new Error('At least one admin user is required.')
+  }
+
+  database.prepare('DELETE FROM users WHERE id = ?').run(id)
+  return getPulseSnapshot(user)
+}
+
+export function addSourceChannel(name: string, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  const value = name.trim()
+  if (!value) {
+    throw new Error('Source channel name is required.')
+  }
+
+  const database = connectDatabase()
+  database.prepare('INSERT OR IGNORE INTO source_channels (name) VALUES (?)').run(value)
+  return getPulseSnapshot(user)
+}
+
+export function deleteSourceChannel(name: string, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  const database = connectDatabase()
+  database.prepare('DELETE FROM source_channels WHERE name = ?').run(name)
+  return getPulseSnapshot(user)
+}
+
+export function addCandidateStatus(name: string, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  const value = name.trim()
+  if (!value) {
+    throw new Error('Candidate status name is required.')
+  }
+
+  const database = connectDatabase()
+  const maxOrder = database.prepare('SELECT COALESCE(MAX(sortOrder), -1) as maxOrder FROM candidate_status_options').get() as { maxOrder: number }
+  database.prepare('INSERT OR IGNORE INTO candidate_status_options (name, sortOrder) VALUES (@name, @sortOrder)').run({ name: value, sortOrder: maxOrder.maxOrder + 1 })
+  return getPulseSnapshot(user)
+}
+
+export function deleteCandidateStatus(name: string, user?: AuthenticatedUser): PulseSnapshot {
+  assertAdmin(user)
+  const database = connectDatabase()
+  const inUse = database.prepare('SELECT COUNT(*) as count FROM candidates WHERE status = ?').get(name) as { count: number }
+  if (inUse.count > 0) {
+    throw new Error('Candidate statuses in use cannot be deleted.')
+  }
+
+  database.prepare('DELETE FROM candidate_status_options WHERE name = ?').run(name)
+  return getPulseSnapshot(user)
 }
 
 function filterByUser<T extends { recruiterOwner?: string; assignedRecruiter?: string; assignedSourcer: string }>(items: T[], user?: AuthenticatedUser): T[] {
@@ -959,7 +1166,7 @@ function prepareCandidateForStorage(database: Database.Database, input: Candidat
   if (!candidate.requirementId) {
     throw new Error('Missing required field: Requirement')
   }
-  if (!candidateStatuses.includes(candidate.status)) {
+  if (!getCandidateStatuses(database).includes(candidate.status)) {
     throw new Error('Invalid candidate status.')
   }
 
@@ -1137,7 +1344,7 @@ export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
 type RecruiterDashboardMetrics = PulseSnapshot['metrics']
 
 const funnelStageMinimums: Record<'contacted' | 'interested' | 'screenShortlisted' | 'interviewsScheduled' | 'offersReleased' | 'offersAccepted' | 'joined', CandidateStatus[]> = {
-  contacted: candidateStatuses.slice(candidateStatuses.indexOf('Contacted')),
+  contacted: defaultCandidateStatuses.slice(defaultCandidateStatuses.indexOf('Contacted')),
   interested: [
     'Interested',
     'Screen Shortlisted',
@@ -1245,11 +1452,16 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
     organizationName: string
     dataRegion: string
     notificationsEnabled: number
+    defaultBackupFolder: string
     oneDriveBackupFolder: string
+    backupFrequency: 'Daily' | 'Weekly' | 'Monthly'
+    defaultCurrency: string
+    defaultLocation: string
     lastBackupAt: string
     lastBackupStatus: string
     lastBackupPath: string
   }
+  const users = database.prepare('SELECT id, username, role, displayName FROM users ORDER BY username COLLATE NOCASE').all() as UserManagementRecord[]
 
   const requirements = filterByUser(allRequirements, user)
   const candidates = filterByUser(allCandidates, user)
@@ -1262,11 +1474,18 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
       organizationName: settingsRow.organizationName,
       dataRegion: settingsRow.dataRegion,
       notificationsEnabled: Boolean(settingsRow.notificationsEnabled),
+      defaultBackupFolder: settingsRow.defaultBackupFolder || getDailyBackupDirectory(),
       oneDriveBackupFolder: settingsRow.oneDriveBackupFolder,
       localBackupFolder: getDailyBackupDirectory(),
       lastBackupAt: settingsRow.lastBackupAt,
       lastBackupStatus: settingsRow.lastBackupStatus,
-      lastBackupPath: settingsRow.lastBackupPath
+      lastBackupPath: settingsRow.lastBackupPath,
+      backupFrequency: settingsRow.backupFrequency,
+      defaultCurrency: settingsRow.defaultCurrency,
+      defaultLocation: settingsRow.defaultLocation,
+      users: user?.role === 'Admin' || !user ? users : [],
+      sourceChannels: getSourceChannels(database),
+      candidateStatuses: getCandidateStatuses(database)
     },
     metrics: buildRecruiterMetrics(requirements, candidates, reports, user)
   }
@@ -1274,7 +1493,7 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
 
 export function getBackupSettings(): BackupSettings & { localBackupFolder: string } {
   const database = connectDatabase()
-  const settings = database.prepare('SELECT oneDriveBackupFolder, lastBackupAt, lastBackupStatus, lastBackupPath FROM settings WHERE id = 1').get() as BackupSettings
+  const settings = database.prepare('SELECT defaultBackupFolder, oneDriveBackupFolder, lastBackupAt, lastBackupStatus, lastBackupPath FROM settings WHERE id = 1').get() as BackupSettings & { defaultBackupFolder: string }
   return { ...settings, localBackupFolder: getDailyBackupDirectory() }
 }
 

@@ -1,4 +1,4 @@
-import type { AuthenticatedUser, CandidateInput, CandidateRecord, LoginResult, PulseSnapshot, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, BackupResult, BackupSettingsRecord } from '../../shared/types'
+import type { AuthenticatedUser, CandidateInput, CandidateRecord, LoginResult, PulseSnapshot, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, BackupResult, BackupSettingsRecord, UserManagementInput, WorkspaceSettingsInput } from '../../shared/types'
 
 declare global {
   interface Window {
@@ -18,6 +18,14 @@ declare global {
       runBackupNow: () => Promise<BackupResult>
       chooseRestoreBackupZip: () => Promise<string>
       restoreBackup: (zipPath: string) => Promise<BackupResult>
+      updateWorkspaceSettings: (settings: WorkspaceSettingsInput) => Promise<PulseSnapshot>
+      createUser: (user: UserManagementInput) => Promise<PulseSnapshot>
+      updateUser: (id: number, user: UserManagementInput) => Promise<PulseSnapshot>
+      deleteUser: (id: number) => Promise<PulseSnapshot>
+      addSourceChannel: (name: string) => Promise<PulseSnapshot>
+      deleteSourceChannel: (name: string) => Promise<PulseSnapshot>
+      addCandidateStatus: (name: string) => Promise<PulseSnapshot>
+      deleteCandidateStatus: (name: string) => Promise<PulseSnapshot>
     }
   }
 }
