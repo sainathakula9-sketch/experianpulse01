@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import type { AuthenticatedUser, CandidateRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, UserRole } from '../shared/types'
+import type { AuthenticatedUser, CandidateRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserRole } from '../shared/types'
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -206,6 +206,18 @@ function initialiseSchema(database: Database.Database): void {
       keyChallenges TEXT NOT NULL DEFAULT '',
       hiringManagerExpectations TEXT NOT NULL DEFAULT '',
       additionalNotes TEXT NOT NULL DEFAULT '',
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (requirementId) REFERENCES requirements(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS requirement_search_strings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      requirementId INTEGER NOT NULL UNIQUE,
+      linkedinBoolean TEXT NOT NULL DEFAULT '',
+      githubSearch TEXT NOT NULL DEFAULT '',
+      naukriKeywords TEXT NOT NULL DEFAULT '',
+      googleXray TEXT NOT NULL DEFAULT '',
+      diversitySourcing TEXT NOT NULL DEFAULT '',
       updatedAt TEXT NOT NULL,
       FOREIGN KEY (requirementId) REFERENCES requirements(id) ON DELETE CASCADE
     );
@@ -501,26 +513,24 @@ function normalizeIntakeInput(input: RequirementIntakeInput): RequirementIntakeI
   }
 }
 
-function attachIntakeToRequirements(database: Database.Database, requirements: RequirementRecord[]): RequirementRecord[] {
+function attachRequirementDetails(database: Database.Database, requirements: RequirementRecord[]): RequirementRecord[] {
   if (requirements.length === 0) {
     return requirements
   }
 
   const intakeRows = database.prepare('SELECT * FROM requirement_intake').all() as RequirementIntakeRecord[]
+  const searchStringRows = database.prepare('SELECT * FROM requirement_search_strings').all() as RequirementSearchStringRecord[]
   const intakeByRequirementId = new Map(intakeRows.map((intake) => [intake.requirementId, intake]))
+  const searchStringsByRequirementId = new Map(searchStringRows.map((searchStrings) => [searchStrings.requirementId, searchStrings]))
 
   return requirements.map((requirement) => ({
     ...requirement,
-    intake: intakeByRequirementId.get(requirement.id)
+    intake: intakeByRequirementId.get(requirement.id),
+    searchStrings: searchStringsByRequirementId.get(requirement.id)
   }))
 }
 
-export function upsertRequirementIntake(requirementId: number, input: RequirementIntakeInput, user?: AuthenticatedUser): RequirementIntakeRecord {
-  if (!user) {
-    throw new Error('You must be logged in to save intake notes.')
-  }
-
-  const database = connectDatabase()
+function assertCanAccessRequirement(database: Database.Database, requirementId: number, user: AuthenticatedUser): void {
   const requirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(requirementId) as RequirementRecord | undefined
   if (!requirement) {
     throw new Error('Requirement not found.')
@@ -530,6 +540,15 @@ export function upsertRequirementIntake(requirementId: number, input: Requiremen
   if (!accessibleRequirement) {
     throw new Error('You do not have access to this requirement.')
   }
+}
+
+export function upsertRequirementIntake(requirementId: number, input: RequirementIntakeInput, user?: AuthenticatedUser): RequirementIntakeRecord {
+  if (!user) {
+    throw new Error('You must be logged in to save intake notes.')
+  }
+
+  const database = connectDatabase()
+  assertCanAccessRequirement(database, requirementId, user)
 
   const intake = normalizeIntakeInput(input)
   const updatedAt = new Date().toISOString()
@@ -605,9 +624,62 @@ export function upsertRequirementIntake(requirementId: number, input: Requiremen
   return database.prepare('SELECT * FROM requirement_intake WHERE requirementId = ?').get(requirementId) as RequirementIntakeRecord
 }
 
+function normalizeSearchStringInput(input: RequirementSearchStringInput): RequirementSearchStringInput {
+  return {
+    linkedinBoolean: input.linkedinBoolean.trim(),
+    githubSearch: input.githubSearch.trim(),
+    naukriKeywords: input.naukriKeywords.trim(),
+    googleXray: input.googleXray.trim(),
+    diversitySourcing: input.diversitySourcing.trim()
+  }
+}
+
+export function upsertRequirementSearchStrings(requirementId: number, input: RequirementSearchStringInput, user?: AuthenticatedUser): RequirementSearchStringRecord {
+  if (!user) {
+    throw new Error('You must be logged in to save search strings.')
+  }
+
+  const database = connectDatabase()
+  assertCanAccessRequirement(database, requirementId, user)
+
+  const searchStrings = normalizeSearchStringInput(input)
+  const updatedAt = new Date().toISOString()
+
+  database
+    .prepare(
+      `INSERT INTO requirement_search_strings (
+         requirementId,
+         linkedinBoolean,
+         githubSearch,
+         naukriKeywords,
+         googleXray,
+         diversitySourcing,
+         updatedAt
+       ) VALUES (
+         @requirementId,
+         @linkedinBoolean,
+         @githubSearch,
+         @naukriKeywords,
+         @googleXray,
+         @diversitySourcing,
+         @updatedAt
+       )
+       ON CONFLICT(requirementId) DO UPDATE SET
+         linkedinBoolean = excluded.linkedinBoolean,
+         githubSearch = excluded.githubSearch,
+         naukriKeywords = excluded.naukriKeywords,
+         googleXray = excluded.googleXray,
+         diversitySourcing = excluded.diversitySourcing,
+         updatedAt = excluded.updatedAt`
+    )
+    .run({ ...searchStrings, requirementId, updatedAt })
+
+  return database.prepare('SELECT * FROM requirement_search_strings WHERE requirementId = ?').get(requirementId) as RequirementSearchStringRecord
+}
+
 export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   const database = connectDatabase()
-  const allRequirements = attachIntakeToRequirements(database, database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[])
+  const allRequirements = attachRequirementDetails(database, database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[])
   const allCandidates = database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as CandidateRecord[]
   const reports = database.prepare('SELECT * FROM reports ORDER BY updatedAt DESC').all() as ReportRecord[]
   const settingsRow = database.prepare('SELECT * FROM settings WHERE id = 1').get() as {

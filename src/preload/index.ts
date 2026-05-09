@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AuthenticatedUser, LoginResult, PulseSnapshot, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord } from '../shared/types'
+import type { AuthenticatedUser, LoginResult, PulseSnapshot, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord } from '../shared/types'
 
 const api = {
   login: (username: string, password: string): Promise<LoginResult> => ipcRenderer.invoke('auth:login', { username, password }),
@@ -7,7 +7,8 @@ const api = {
   getSnapshot: (_user?: AuthenticatedUser): Promise<PulseSnapshot> => ipcRenderer.invoke('pulse:getSnapshot'),
   createRequirement: (requirement: RequirementInput): Promise<RequirementRecord> => ipcRenderer.invoke('requirements:create', requirement),
   updateRequirement: (id: number, requirement: RequirementInput): Promise<RequirementRecord> => ipcRenderer.invoke('requirements:update', { id, requirement }),
-  saveRequirementIntake: (requirementId: number, intake: RequirementIntakeInput): Promise<RequirementIntakeRecord> => ipcRenderer.invoke('requirements:saveIntake', { requirementId, intake })
+  saveRequirementIntake: (requirementId: number, intake: RequirementIntakeInput): Promise<RequirementIntakeRecord> => ipcRenderer.invoke('requirements:saveIntake', { requirementId, intake }),
+  saveRequirementSearchStrings: (requirementId: number, searchStrings: RequirementSearchStringInput): Promise<RequirementSearchStringRecord> => ipcRenderer.invoke('requirements:saveSearchStrings', { requirementId, searchStrings })
 }
 
 contextBridge.exposeInMainWorld('experianPulse', api)
