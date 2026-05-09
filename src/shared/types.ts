@@ -71,11 +71,13 @@ export interface RequirementRecord {
   recruiterOwner: string
   assignedSourcer: string
   status: RequirementStatus
+  createdAt: string
+  closedAt: string
   intake?: RequirementIntakeRecord
   searchStrings?: RequirementSearchStringRecord
 }
 
-export type RequirementInput = Omit<RequirementRecord, 'id' | 'intake' | 'searchStrings'>
+export type RequirementInput = Omit<RequirementRecord, 'id' | 'createdAt' | 'closedAt' | 'intake' | 'searchStrings'>
 
 export interface CandidateStatusHistoryRecord {
   id: number
@@ -150,5 +152,15 @@ export interface PulseSnapshot {
     reportsGenerated: number
     riskItems: number
     activeCandidates: number
+    profilesSourced: number
+    contacted: number
+    interested: number
+    screenShortlisted: number
+    interviewsScheduled: number
+    offersReleased: number
+    offersAccepted: number
+    joined: number
+    offerDrops: number
+    averageDaysToClose: number
   }
 }
