@@ -1,11 +1,23 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { addCandidateStatus, addSourceChannel, authenticateUser, closeDatabase, connectDatabase, createCandidate, createRequirement, createUser, deleteCandidate, deleteRequirement, deleteCandidateStatus, deleteSourceChannel, deleteUser, getAuditTrail, getPulseSnapshot, recordAuditAction, restoreFromBackup, runBackupNow, runStartupBackup, updateCandidate, updateOneDriveBackupFolder, updateRequirement, updateUser, updateWorkspaceSettings, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
 import { chooseBackupZip, chooseOneDriveBackupFolder, getDailyBackupDirectory } from './backup'
+import type Database from 'better-sqlite3'
 import type { AuditTrailFilters, AuditTrailInput, CandidateInput, RequirementInput, RequirementIntakeInput, RequirementSearchStringInput, UserManagementInput, WorkspaceSettingsInput } from '../shared/types'
 
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
+const preloadFileName = 'index.mjs'
+
+if (process.platform === 'linux' && typeof process.getuid === 'function' && process.getuid() === 0) {
+  app.commandLine.appendSwitch('no-sandbox')
+}
+
 let currentUser: ReturnType<typeof authenticateUser>['user']
+
+function showStartupError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  dialog.showErrorBox('Experian Pulse startup error', `Experian Pulse could not start the local workspace.\n\n${message}`)
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -16,7 +28,7 @@ function createWindow(): void {
     title: 'Experian Pulse',
     backgroundColor: '#f4f7fb',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, `../preload/${preloadFileName}`),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -32,7 +44,14 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  const database = connectDatabase()
+  let database: Database.Database
+  try {
+    database = connectDatabase()
+  } catch (error) {
+    showStartupError(error)
+    app.quit()
+    return
+  }
   ipcMain.handle('auth:login', (_event, credentials: { username: string; password: string }) => {
     const result = authenticateUser(credentials.username, credentials.password)
     currentUser = result.user
