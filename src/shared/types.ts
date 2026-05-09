@@ -2,6 +2,7 @@ export type RequirementStatus = 'Open' | 'On Hold' | 'Closed' | 'Cancelled'
 export type RequirementPriority = 'Low' | 'Medium' | 'High' | 'Critical'
 export type WorkMode = 'Onsite' | 'Hybrid' | 'Remote'
 export type UserRole = 'Admin' | 'Recruiter' | 'Sourcer'
+export type CandidateStatus = 'New Profile' | 'Contacted' | 'Interested' | 'Not Interested' | 'Screen Shortlisted' | 'Screen Rejected' | 'HM Shortlisted' | 'Interview 1 Scheduled' | 'Interview 1 Selected' | 'Interview 1 Rejected' | 'Interview 2 Scheduled' | 'Interview 2 Selected' | 'Final Round' | 'Offer Discussion' | 'Offer Released' | 'Offer Accepted' | 'Offer Dropped' | 'Joined'
 
 export interface AuthenticatedUser {
   id: number
@@ -81,11 +82,33 @@ export interface CandidateRecord {
   name: string
   requirementId: number
   requirementTitle: string
-  stage: string
+  currentCompany: string
+  currentTitle: string
+  totalExperience: string
+  relevantExperience: string
+  location: string
+  currentCtc: string
+  expectedCtc: string
+  noticePeriod: string
+  servingNotice: boolean
+  lastWorkingDay: string
+  primarySkills: string
+  secondarySkills: string
+  sourceChannel: string
+  linkedinUrl: string
+  githubUrl: string
+  resumeFilePath: string
+  sourcerName: string
+  recruiterName: string
+  status: CandidateStatus
+  remarks: string
+  followUpDate: string
   updatedAt: string
   assignedRecruiter: string
   assignedSourcer: string
 }
+
+export type CandidateInput = Omit<CandidateRecord, 'id' | 'requirementTitle' | 'updatedAt' | 'assignedRecruiter' | 'assignedSourcer'>
 
 export interface ReportRecord {
   id: number

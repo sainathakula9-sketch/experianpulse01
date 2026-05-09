@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import type { AuthenticatedUser, CandidateRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserRole } from '../shared/types'
+import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserRole } from '../shared/types'
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -8,6 +8,27 @@ import { join } from 'node:path'
 let db: Database.Database | undefined
 
 const passwordSalt = 'experian-pulse-local-auth'
+
+const candidateStatuses: CandidateStatus[] = [
+  'New Profile',
+  'Contacted',
+  'Interested',
+  'Not Interested',
+  'Screen Shortlisted',
+  'Screen Rejected',
+  'HM Shortlisted',
+  'Interview 1 Scheduled',
+  'Interview 1 Selected',
+  'Interview 1 Rejected',
+  'Interview 2 Scheduled',
+  'Interview 2 Selected',
+  'Final Round',
+  'Offer Discussion',
+  'Offer Released',
+  'Offer Accepted',
+  'Offer Dropped',
+  'Joined'
+]
 
 const defaultUsers: Array<{ username: string; password: string; role: UserRole; displayName: string }> = [
   { username: 'admin', password: 'admin123', role: 'Admin', displayName: 'Pulse Admin' },
@@ -78,33 +99,81 @@ const mockRequirements: RequirementInput[] = [
   }
 ]
 
-const mockCandidates: Omit<CandidateRecord, 'id'>[] = [
+const mockCandidates: CandidateInput[] = [
   {
     name: 'Avery Johnson',
     requirementId: 1,
-    requirementTitle: 'Senior Risk Analyst',
-    stage: 'Recruiter screen',
-    updatedAt: '2026-05-07',
-    assignedRecruiter: 'recruiter',
-    assignedSourcer: 'sourcer'
+    currentCompany: 'TransUnion',
+    currentTitle: 'Senior Risk Analyst',
+    totalExperience: '8 years',
+    relevantExperience: '6 years',
+    location: 'Costa Mesa, CA',
+    currentCtc: '$118k',
+    expectedCtc: '$135k',
+    noticePeriod: '30 days',
+    servingNotice: false,
+    lastWorkingDay: '',
+    primarySkills: 'Risk analytics, SQL, governance',
+    secondarySkills: 'Tableau, Python',
+    sourceChannel: 'LinkedIn',
+    linkedinUrl: 'https://linkedin.com/in/avery-johnson',
+    githubUrl: '',
+    resumeFilePath: 'resumes/avery-johnson.pdf',
+    sourcerName: 'sourcer',
+    recruiterName: 'recruiter',
+    status: 'Screen Shortlisted',
+    remarks: 'Strong risk controls background.',
+    followUpDate: '2026-05-12'
   },
   {
     name: 'Morgan Smith',
     requirementId: 2,
-    requirementTitle: 'Procurement Controls Lead',
-    stage: 'Submitted',
-    updatedAt: '2026-05-06',
-    assignedRecruiter: 'recruiter',
-    assignedSourcer: 'sourcer'
+    currentCompany: 'Capital One',
+    currentTitle: 'Procurement Controls Manager',
+    totalExperience: '10 years',
+    relevantExperience: '7 years',
+    location: 'Allen, TX',
+    currentCtc: '$108k',
+    expectedCtc: '$125k',
+    noticePeriod: '45 days',
+    servingNotice: false,
+    lastWorkingDay: '',
+    primarySkills: 'Procurement controls, SOX, vendor risk',
+    secondarySkills: 'Coupa, audit',
+    sourceChannel: 'Referral',
+    linkedinUrl: 'https://linkedin.com/in/morgan-smith',
+    githubUrl: '',
+    resumeFilePath: 'resumes/morgan-smith.pdf',
+    sourcerName: 'sourcer',
+    recruiterName: 'recruiter',
+    status: 'Contacted',
+    remarks: 'Requested JD and compensation range.',
+    followUpDate: '2026-05-10'
   },
   {
     name: 'Riley Chen',
     requirementId: 4,
-    requirementTitle: 'Incident Response Manager',
-    stage: 'Sourcing',
-    updatedAt: '2026-05-04',
-    assignedRecruiter: 'admin',
-    assignedSourcer: 'sourcer'
+    currentCompany: 'Okta',
+    currentTitle: 'Incident Response Lead',
+    totalExperience: '9 years',
+    relevantExperience: '8 years',
+    location: 'Schaumburg, IL',
+    currentCtc: '$142k',
+    expectedCtc: '$162k',
+    noticePeriod: 'Immediate',
+    servingNotice: true,
+    lastWorkingDay: '2026-05-24',
+    primarySkills: 'Incident response, SIEM, threat hunting',
+    secondarySkills: 'Cloud security, forensics',
+    sourceChannel: 'GitHub',
+    linkedinUrl: 'https://linkedin.com/in/riley-chen',
+    githubUrl: 'https://github.com/rileychen',
+    resumeFilePath: 'resumes/riley-chen.pdf',
+    sourcerName: 'sourcer',
+    recruiterName: 'admin',
+    status: 'Interested',
+    remarks: 'Available for HM screen next week.',
+    followUpDate: '2026-05-11'
   }
 ]
 
@@ -227,10 +296,32 @@ function initialiseSchema(database: Database.Database): void {
       name TEXT NOT NULL,
       requirementId INTEGER NOT NULL,
       requirementTitle TEXT NOT NULL,
-      stage TEXT NOT NULL,
+      currentCompany TEXT NOT NULL DEFAULT '',
+      currentTitle TEXT NOT NULL DEFAULT '',
+      totalExperience TEXT NOT NULL DEFAULT '',
+      relevantExperience TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT '',
+      currentCtc TEXT NOT NULL DEFAULT '',
+      expectedCtc TEXT NOT NULL DEFAULT '',
+      noticePeriod TEXT NOT NULL DEFAULT '',
+      servingNotice INTEGER NOT NULL DEFAULT 0,
+      lastWorkingDay TEXT NOT NULL DEFAULT '',
+      primarySkills TEXT NOT NULL DEFAULT '',
+      secondarySkills TEXT NOT NULL DEFAULT '',
+      sourceChannel TEXT NOT NULL DEFAULT '',
+      linkedinUrl TEXT NOT NULL DEFAULT '',
+      githubUrl TEXT NOT NULL DEFAULT '',
+      resumeFilePath TEXT NOT NULL DEFAULT '',
+      sourcerName TEXT NOT NULL DEFAULT '',
+      recruiterName TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'New Profile',
+      stage TEXT NOT NULL DEFAULT 'New Profile',
+      remarks TEXT NOT NULL DEFAULT '',
+      followUpDate TEXT NOT NULL DEFAULT '',
       updatedAt TEXT NOT NULL,
       assignedRecruiter TEXT NOT NULL,
-      assignedSourcer TEXT NOT NULL
+      assignedSourcer TEXT NOT NULL,
+      FOREIGN KEY (requirementId) REFERENCES requirements(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS reports (
@@ -261,7 +352,31 @@ function initialiseSchema(database: Database.Database): void {
   addColumnIfMissing(database, 'requirements', 'recruiterOwner', "TEXT NOT NULL DEFAULT 'recruiter'")
   addColumnIfMissing(database, 'requirements', 'assignedSourcer', "TEXT NOT NULL DEFAULT 'sourcer'")
   addColumnIfMissing(database, 'requirements', 'status', "TEXT NOT NULL DEFAULT 'Open'")
+  addColumnIfMissing(database, 'candidates', 'requirementTitle', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'currentCompany', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'currentTitle', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'totalExperience', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'relevantExperience', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'location', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'currentCtc', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'expectedCtc', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'noticePeriod', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'servingNotice', "INTEGER NOT NULL DEFAULT 0")
+  addColumnIfMissing(database, 'candidates', 'lastWorkingDay', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'primarySkills', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'secondarySkills', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'sourceChannel', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'linkedinUrl', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'githubUrl', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'resumeFilePath', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'sourcerName', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'recruiterName', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'status', "TEXT NOT NULL DEFAULT 'New Profile'")
+  addColumnIfMissing(database, 'candidates', 'stage', "TEXT NOT NULL DEFAULT 'New Profile'")
+  addColumnIfMissing(database, 'candidates', 'remarks', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'candidates', 'followUpDate', "TEXT NOT NULL DEFAULT ''")
   migrateLegacyRequirements(database)
+  migrateLegacyCandidates(database)
 }
 
 function migrateLegacyRequirements(database: Database.Database): void {
@@ -308,6 +423,34 @@ function migrateLegacyRequirements(database: Database.Database): void {
   })
 }
 
+function migrateLegacyCandidates(database: Database.Database): void {
+  const rows = database.prepare('SELECT candidates.*, requirements.roleTitle, requirements.recruiterOwner, requirements.assignedSourcer FROM candidates LEFT JOIN requirements ON candidates.requirementId = requirements.id').all() as Array<Record<string, string | number>>
+  const updateCandidate = database.prepare(`
+    UPDATE candidates
+    SET requirementTitle = @requirementTitle,
+        status = @status,
+        stage = @status,
+        sourcerName = @sourcerName,
+        recruiterName = @recruiterName,
+        assignedRecruiter = @assignedRecruiter,
+        assignedSourcer = @assignedSourcer
+    WHERE id = @id
+  `)
+
+  rows.forEach((row) => {
+    const status = candidateStatuses.includes(row.stage as CandidateStatus) ? String(row.stage) : String(row.status || 'New Profile')
+    updateCandidate.run({
+      id: row.id,
+      requirementTitle: row.requirementTitle || row.roleTitle || 'Untitled Requirement',
+      status: candidateStatuses.includes(status as CandidateStatus) ? status : 'New Profile',
+      sourcerName: row.sourcerName || row.assignedSourcer || 'sourcer',
+      recruiterName: row.recruiterName || row.assignedRecruiter || 'recruiter',
+      assignedRecruiter: row.assignedRecruiter || row.recruiterOwner || 'recruiter',
+      assignedSourcer: row.assignedSourcer || row.assignedSourcer || 'sourcer'
+    })
+  })
+}
+
 function seedMockData(database: Database.Database): void {
   const insertUser = database.prepare(`
     INSERT INTO users (username, passwordHash, role, displayName)
@@ -336,11 +479,18 @@ function seedMockData(database: Database.Database): void {
   const candidateCount = database.prepare('SELECT COUNT(*) as count FROM candidates').get() as { count: number }
   if (candidateCount.count === 0) {
     const insertCandidate = database.prepare(`
-      INSERT INTO candidates (name, requirementId, requirementTitle, stage, updatedAt, assignedRecruiter, assignedSourcer)
-      VALUES (@name, @requirementId, @requirementTitle, @stage, @updatedAt, @assignedRecruiter, @assignedSourcer)
+      INSERT INTO candidates (
+        name, requirementId, requirementTitle, currentCompany, currentTitle, totalExperience, relevantExperience, location,
+        currentCtc, expectedCtc, noticePeriod, servingNotice, lastWorkingDay, primarySkills, secondarySkills, sourceChannel,
+        linkedinUrl, githubUrl, resumeFilePath, sourcerName, recruiterName, status, stage, remarks, followUpDate, updatedAt, assignedRecruiter, assignedSourcer
+      ) VALUES (
+        @name, @requirementId, @requirementTitle, @currentCompany, @currentTitle, @totalExperience, @relevantExperience, @location,
+        @currentCtc, @expectedCtc, @noticePeriod, @servingNotice, @lastWorkingDay, @primarySkills, @secondarySkills, @sourceChannel,
+        @linkedinUrl, @githubUrl, @resumeFilePath, @sourcerName, @recruiterName, @status, @stage, @remarks, @followUpDate, @updatedAt, @assignedRecruiter, @assignedSourcer
+      )
     `)
     const insertMany = database.transaction((candidates: typeof mockCandidates) => {
-      candidates.forEach((candidate) => insertCandidate.run(candidate))
+      candidates.forEach((candidate) => insertCandidate.run(prepareCandidateForStorage(database, candidate)))
     })
     insertMany(mockCandidates)
   }
@@ -677,10 +827,170 @@ export function upsertRequirementSearchStrings(requirementId: number, input: Req
   return database.prepare('SELECT * FROM requirement_search_strings WHERE requirementId = ?').get(requirementId) as RequirementSearchStringRecord
 }
 
+function normalizeCandidateInput(input: CandidateInput): CandidateInput {
+  return {
+    name: input.name.trim(),
+    requirementId: Number(input.requirementId),
+    currentCompany: input.currentCompany.trim(),
+    currentTitle: input.currentTitle.trim(),
+    totalExperience: input.totalExperience.trim(),
+    relevantExperience: input.relevantExperience.trim(),
+    location: input.location.trim(),
+    currentCtc: input.currentCtc.trim(),
+    expectedCtc: input.expectedCtc.trim(),
+    noticePeriod: input.noticePeriod.trim(),
+    servingNotice: Boolean(input.servingNotice),
+    lastWorkingDay: input.lastWorkingDay.trim(),
+    primarySkills: input.primarySkills.trim(),
+    secondarySkills: input.secondarySkills.trim(),
+    sourceChannel: input.sourceChannel.trim(),
+    linkedinUrl: input.linkedinUrl.trim(),
+    githubUrl: input.githubUrl.trim(),
+    resumeFilePath: input.resumeFilePath.trim(),
+    sourcerName: input.sourcerName.trim(),
+    recruiterName: input.recruiterName.trim(),
+    status: input.status,
+    remarks: input.remarks.trim(),
+    followUpDate: input.followUpDate.trim()
+  }
+}
+
+function getRequirementForCandidate(database: Database.Database, requirementId: number): RequirementRecord {
+  const requirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(requirementId) as RequirementRecord | undefined
+  if (!requirement) {
+    throw new Error('Requirement not found for candidate.')
+  }
+  return requirement
+}
+
+function prepareCandidateForStorage(database: Database.Database, input: CandidateInput): Record<string, string | number> {
+  const candidate = normalizeCandidateInput(input)
+  if (!candidate.name) {
+    throw new Error('Missing required field: Candidate Name')
+  }
+  if (!candidate.requirementId) {
+    throw new Error('Missing required field: Requirement')
+  }
+  if (!candidateStatuses.includes(candidate.status)) {
+    throw new Error('Invalid candidate status.')
+  }
+
+  const requirement = getRequirementForCandidate(database, candidate.requirementId)
+  return {
+    ...candidate,
+    requirementTitle: requirement.roleTitle,
+    servingNotice: candidate.servingNotice ? 1 : 0,
+    stage: candidate.status,
+    updatedAt: new Date().toISOString(),
+    assignedRecruiter: requirement.recruiterOwner,
+    assignedSourcer: requirement.assignedSourcer
+  }
+}
+
+function mapCandidateRow(row: Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number | boolean }): CandidateRecord {
+  return {
+    ...row,
+    servingNotice: Boolean(row.servingNotice)
+  }
+}
+
+function assertCanAccessCandidate(database: Database.Database, candidateId: number, user: AuthenticatedUser): CandidateRecord {
+  const candidate = database.prepare('SELECT * FROM candidates WHERE id = ?').get(candidateId) as (Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number }) | undefined
+  if (!candidate) {
+    throw new Error('Candidate not found.')
+  }
+
+  assertCanAccessRequirement(database, candidate.requirementId, user)
+  return mapCandidateRow(candidate)
+}
+
+export function createCandidate(input: CandidateInput, user?: AuthenticatedUser): CandidateRecord {
+  if (!user) {
+    throw new Error('You must be logged in to create candidates.')
+  }
+
+  const database = connectDatabase()
+  assertCanAccessRequirement(database, input.requirementId, user)
+  const candidate = prepareCandidateForStorage(database, input)
+  const result = database
+    .prepare(
+      `INSERT INTO candidates (
+         name, requirementId, requirementTitle, currentCompany, currentTitle, totalExperience, relevantExperience, location,
+         currentCtc, expectedCtc, noticePeriod, servingNotice, lastWorkingDay, primarySkills, secondarySkills, sourceChannel,
+         linkedinUrl, githubUrl, resumeFilePath, sourcerName, recruiterName, status, stage, remarks, followUpDate, updatedAt, assignedRecruiter, assignedSourcer
+       ) VALUES (
+         @name, @requirementId, @requirementTitle, @currentCompany, @currentTitle, @totalExperience, @relevantExperience, @location,
+         @currentCtc, @expectedCtc, @noticePeriod, @servingNotice, @lastWorkingDay, @primarySkills, @secondarySkills, @sourceChannel,
+         @linkedinUrl, @githubUrl, @resumeFilePath, @sourcerName, @recruiterName, @status, @stage, @remarks, @followUpDate, @updatedAt, @assignedRecruiter, @assignedSourcer
+       )`
+    )
+    .run(candidate) as { lastInsertRowid: number | bigint }
+
+  return mapCandidateRow(database.prepare('SELECT * FROM candidates WHERE id = ?').get(result.lastInsertRowid) as Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number })
+}
+
+export function updateCandidate(id: number, input: CandidateInput, user?: AuthenticatedUser): CandidateRecord {
+  if (!user) {
+    throw new Error('You must be logged in to update candidates.')
+  }
+
+  const database = connectDatabase()
+  assertCanAccessCandidate(database, id, user)
+  assertCanAccessRequirement(database, input.requirementId, user)
+  const candidate = prepareCandidateForStorage(database, input)
+  database
+    .prepare(
+      `UPDATE candidates
+       SET name = @name,
+           requirementId = @requirementId,
+           requirementTitle = @requirementTitle,
+           currentCompany = @currentCompany,
+           currentTitle = @currentTitle,
+           totalExperience = @totalExperience,
+           relevantExperience = @relevantExperience,
+           location = @location,
+           currentCtc = @currentCtc,
+           expectedCtc = @expectedCtc,
+           noticePeriod = @noticePeriod,
+           servingNotice = @servingNotice,
+           lastWorkingDay = @lastWorkingDay,
+           primarySkills = @primarySkills,
+           secondarySkills = @secondarySkills,
+           sourceChannel = @sourceChannel,
+           linkedinUrl = @linkedinUrl,
+           githubUrl = @githubUrl,
+           resumeFilePath = @resumeFilePath,
+           sourcerName = @sourcerName,
+           recruiterName = @recruiterName,
+           status = @status,
+           stage = @stage,
+           remarks = @remarks,
+           followUpDate = @followUpDate,
+           updatedAt = @updatedAt,
+           assignedRecruiter = @assignedRecruiter,
+           assignedSourcer = @assignedSourcer
+       WHERE id = @id`
+    )
+    .run({ ...candidate, id })
+
+  return mapCandidateRow(database.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number })
+}
+
+export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
+  if (!user) {
+    throw new Error('You must be logged in to delete candidates.')
+  }
+
+  const database = connectDatabase()
+  assertCanAccessCandidate(database, id, user)
+  database.prepare('DELETE FROM candidates WHERE id = ?').run(id)
+  return true
+}
+
 export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   const database = connectDatabase()
   const allRequirements = attachRequirementDetails(database, database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[])
-  const allCandidates = database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as CandidateRecord[]
+  const allCandidates = (database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as Array<Omit<CandidateRecord, 'servingNotice'> & { servingNotice: number }>).map(mapCandidateRow)
   const reports = database.prepare('SELECT * FROM reports ORDER BY updatedAt DESC').all() as ReportRecord[]
   const settingsRow = database.prepare('SELECT * FROM settings WHERE id = 1').get() as {
     organizationName: string
