@@ -150,12 +150,34 @@ function countCandidatesAtOrBeyond(candidates: CandidateRecord[], statuses: Cand
   return candidates.filter((candidate) => statuses.includes(candidate.status)).length
 }
 
+function calculateAverageDaysToClose(requirements: RequirementRecord[], candidates: CandidateRecord[]): number {
+  const requirementDurations = requirements
+    .filter((requirement) => requirement.status === 'Closed' && requirement.createdAt && requirement.closedAt)
+    .map((requirement) => daysBetween(requirement.createdAt, new Date(requirement.closedAt)))
+    .filter((days) => days > 0)
+
+  if (requirementDurations.length > 0) {
+    return Math.round(requirementDurations.reduce((total, days) => total + days, 0) / requirementDurations.length)
+  }
+
+  const completedDurations = candidates
+    .filter((candidate) => candidate.status === 'Joined' || candidate.status === 'Offer Accepted')
+    .map((candidate) => candidate.totalDaysInPipeline)
+    .filter((days) => days > 0)
+
+  if (completedDurations.length === 0) {
+    return 0
+  }
+
+  return Math.round(completedDurations.reduce((total, days) => total + days, 0) / completedDurations.length)
+}
+
 function isRequirementStatus(status: string): status is RequirementStatus {
   return requirementStatuses.includes(status as RequirementStatus)
 }
 
-function isCandidateStatus(status: string): status is CandidateStatus {
-  return statusOrder.includes(status as CandidateStatus)
+function isCandidateStatus(status: string, knownStatuses: CandidateStatus[] = statusOrder): status is CandidateStatus {
+  return knownStatuses.includes(status as CandidateStatus)
 }
 
 function buildProductivityRows(
@@ -198,6 +220,10 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
   })
 
   const requirementsById = useMemo(() => new Map(snapshot.requirements.map((requirement) => [requirement.id, requirement])), [snapshot.requirements])
+  const candidateStatusOptions = useMemo(
+    () => [...statusOrder, ...getUniqueOptions(snapshot.candidates.map((candidate) => candidate.status)).filter((status) => !statusOrder.includes(status))],
+    [snapshot.candidates]
+  )
 
   const filterOptions = useMemo(() => {
     const recruiters = getUniqueOptions([
@@ -234,7 +260,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
     () =>
       snapshot.candidates.filter((candidate) => {
         const requirement = getCandidateRequirement(candidate, requirementsById)
-        const candidateStatusMatches = !filters.status || !isCandidateStatus(filters.status) || candidate.status === filters.status
+        const candidateStatusMatches = !filters.status || !isCandidateStatus(filters.status, candidateStatusOptions) || candidate.status === filters.status
         const requirementStatusMatches = !filters.status || !isRequirementStatus(filters.status) || requirement?.status === filters.status
 
         return (
@@ -246,7 +272,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
           candidateMatchesDateRange(candidate, filters.startDate, filters.endDate)
         )
       }),
-    [filteredRequirementIds, filters, requirementsById, snapshot.candidates]
+    [candidateStatusOptions, filteredRequirementIds, filters, requirementsById, snapshot.candidates]
   )
 
   const isAdmin = user.role === 'Admin'
@@ -254,6 +280,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
   const closedRoles = filteredRequirements.filter((requirement) => requirement.status === 'Closed').length
   const offerDrops = filteredCandidates.filter((candidate) => candidate.status === 'Offer Dropped').length
   const diversityPipelineCount = filteredCandidates.filter((candidate) => hasDiversitySignal(candidate, requirementsById.get(candidate.requirementId))).length
+  const averageDaysToClose = calculateAverageDaysToClose(filteredRequirements, filteredCandidates)
 
   const cards = [
     { label: 'Total open roles', value: openRoles, accent: 'text-experian-blue' },
@@ -263,7 +290,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
     { label: 'Offers released', value: countCandidatesAtOrBeyond(filteredCandidates, offerStatuses), accent: 'text-amber-600' },
     { label: 'Offer drops', value: offerDrops, accent: 'text-red-600' },
     { label: 'Diversity pipeline count', value: diversityPipelineCount, accent: 'text-experian-magenta' },
-    { label: 'Average days to close', value: snapshot.metrics.averageDaysToClose, accent: 'text-experian-ink' }
+    { label: 'Average days to close', value: averageDaysToClose, accent: 'text-experian-ink' }
   ]
 
   const candidateFunnel = [
@@ -276,7 +303,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
     { name: 'Joined', value: filteredCandidates.filter((candidate) => candidate.status === 'Joined').length, fill: '#0f766e' }
   ]
 
-  const statusDistribution = statusOrder
+  const statusDistribution = candidateStatusOptions
     .map((status) => ({ name: status, value: filteredCandidates.filter((candidate) => candidate.status === status).length }))
     .filter((item) => item.value > 0)
 
@@ -411,7 +438,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
                 ))}
               </optgroup>
               <optgroup label="Candidate status">
-                {statusOrder.map((status) => (
+                {candidateStatusOptions.map((status) => (
                   <option key={status} value={status}>{status}</option>
                 ))}
               </optgroup>

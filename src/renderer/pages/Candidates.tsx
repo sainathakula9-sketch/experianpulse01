@@ -1,5 +1,5 @@
 import { ClipboardCheck, Download, History, Pencil, PlusCircle, Trash2, Upload } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, RequirementRecord, SettingsRecord } from '../../shared/types'
 import { exportCandidatesForRequirement, parseCandidateImportFile } from '../utils/excel'
@@ -188,6 +188,22 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
     [candidates, excelRequirement]
   )
 
+  useEffect(() => {
+    if (requirements.length === 0) {
+      setCandidateForm((currentCandidate) => ({ ...currentCandidate, requirementId: 0 }))
+      setExcelRequirementId(0)
+      return
+    }
+
+    setCandidateForm((currentCandidate) =>
+      currentCandidate.requirementId && requirements.some((requirement) => requirement.id === currentCandidate.requirementId)
+        ? currentCandidate
+        : { ...currentCandidate, requirementId: requirements[0].id }
+    )
+
+    setExcelRequirementId((currentRequirementId) => (requirements.some((requirement) => requirement.id === currentRequirementId) ? currentRequirementId : requirements[0].id))
+  }, [requirements])
+
   const resetForm = (): void => {
     setCandidateForm(createDefaultCandidate(requirements, user))
     setEditingCandidateId(undefined)
@@ -222,6 +238,11 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
 
     if (candidateForm.linkedinUrl && !candidateForm.linkedinUrl.startsWith('http')) {
       setFormError('LinkedIn URL must start with http:// or https://.')
+      return
+    }
+
+    if (candidateForm.githubUrl && !candidateForm.githubUrl.startsWith('http')) {
+      setFormError('GitHub URL must start with http:// or https://.')
       return
     }
 

@@ -853,6 +853,11 @@ export function updateWorkspaceSettings(input: WorkspaceSettingsInput, user?: Au
        WHERE id = 1`
     )
     .run(settings)
+  recordAuditEvent(database, 'Settings Updated', user, 'Updated workspace settings.', {
+    entityType: 'Settings',
+    entityId: 1,
+    details: JSON.stringify({ organizationName: settings.organizationName, backupFrequency: settings.backupFrequency, defaultCurrency: settings.defaultCurrency })
+  })
   return getPulseSnapshot(user)
 }
 
@@ -867,6 +872,11 @@ export function createUser(input: UserManagementInput, user?: AuthenticatedUser)
   database
     .prepare('INSERT INTO users (username, passwordHash, role, displayName) VALUES (@username, @passwordHash, @role, @displayName)')
     .run({ ...nextUser, passwordHash: hashPassword(nextUser.password) })
+  recordAuditEvent(database, 'User Created', user, `Created user ${nextUser.username}.`, {
+    entityType: 'User',
+    entityId: nextUser.username,
+    details: JSON.stringify({ role: nextUser.role, displayName: nextUser.displayName })
+  })
   return getPulseSnapshot(user)
 }
 
@@ -887,6 +897,12 @@ export function updateUser(id: number, input: UserManagementInput, user?: Authen
     database.prepare('UPDATE users SET username = @username, role = @role, displayName = @displayName WHERE id = @id').run({ ...nextUser, id })
   }
 
+  recordAuditEvent(database, 'User Updated', user, `Updated user ${nextUser.username}.`, {
+    entityType: 'User',
+    entityId: id,
+    details: JSON.stringify({ previousUsername: existingUser.username, role: nextUser.role, passwordChanged: Boolean(nextUser.password) })
+  })
+
   return getPulseSnapshot(user)
 }
 
@@ -904,6 +920,11 @@ export function deleteUser(id: number, user?: AuthenticatedUser): PulseSnapshot 
   }
 
   database.prepare('DELETE FROM users WHERE id = ?').run(id)
+  recordAuditEvent(database, 'User Deleted', user, `Deleted user ${id}.`, {
+    entityType: 'User',
+    entityId: id,
+    details: JSON.stringify({ role: deletingUser?.role ?? '' })
+  })
   return getPulseSnapshot(user)
 }
 
@@ -916,13 +937,19 @@ export function addSourceChannel(name: string, user?: AuthenticatedUser): PulseS
 
   const database = connectDatabase()
   database.prepare('INSERT OR IGNORE INTO source_channels (name) VALUES (?)').run(value)
+  recordAuditEvent(database, 'Source Channel Updated', user, `Added source channel ${value}.`, { entityType: 'Settings', entityId: value })
   return getPulseSnapshot(user)
 }
 
 export function deleteSourceChannel(name: string, user?: AuthenticatedUser): PulseSnapshot {
   assertAdmin(user)
   const database = connectDatabase()
+  const inUse = database.prepare('SELECT COUNT(*) as count FROM candidates WHERE sourceChannel = ?').get(name) as { count: number }
+  if (inUse.count > 0) {
+    throw new Error('Source channels in use cannot be deleted.')
+  }
   database.prepare('DELETE FROM source_channels WHERE name = ?').run(name)
+  recordAuditEvent(database, 'Source Channel Updated', user, `Deleted source channel ${name}.`, { entityType: 'Settings', entityId: name })
   return getPulseSnapshot(user)
 }
 
@@ -936,6 +963,7 @@ export function addCandidateStatus(name: string, user?: AuthenticatedUser): Puls
   const database = connectDatabase()
   const maxOrder = database.prepare('SELECT COALESCE(MAX(sortOrder), -1) as maxOrder FROM candidate_status_options').get() as { maxOrder: number }
   database.prepare('INSERT OR IGNORE INTO candidate_status_options (name, sortOrder) VALUES (@name, @sortOrder)').run({ name: value, sortOrder: maxOrder.maxOrder + 1 })
+  recordAuditEvent(database, 'Candidate Status Option Updated', user, `Added candidate status option ${value}.`, { entityType: 'Settings', entityId: value })
   return getPulseSnapshot(user)
 }
 
@@ -948,6 +976,7 @@ export function deleteCandidateStatus(name: string, user?: AuthenticatedUser): P
   }
 
   database.prepare('DELETE FROM candidate_status_options WHERE name = ?').run(name)
+  recordAuditEvent(database, 'Candidate Status Option Updated', user, `Deleted candidate status option ${name}.`, { entityType: 'Settings', entityId: name })
   return getPulseSnapshot(user)
 }
 
@@ -967,6 +996,33 @@ function normalizeDateInput(value: string, label: string): string {
   const trimmedValue = value.trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
     throw new Error(`${label} must use YYYY-MM-DD format.`)
+  }
+
+  return trimmedValue
+}
+
+function normalizeOptionalDateInput(value: string, label: string): string {
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return ''
+  }
+
+  return normalizeDateInput(trimmedValue, label)
+}
+
+function normalizeOptionalHttpUrl(value: string, label: string): string {
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return ''
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedValue)
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error('Unsupported protocol')
+    }
+  } catch {
+    throw new Error(`${label} must be a valid http:// or https:// URL.`)
   }
 
   return trimmedValue
@@ -1281,6 +1337,7 @@ export function upsertRequirementSearchStrings(requirementId: number, input: Req
 
   const database = connectDatabase()
   assertCanAccessRequirement(database, requirementId, user)
+  const requirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(requirementId) as RequirementRecord
 
   const searchStrings = normalizeSearchStringInput(input)
   const updatedAt = new Date().toISOString()
@@ -1314,7 +1371,13 @@ export function upsertRequirementSearchStrings(requirementId: number, input: Req
     )
     .run({ ...searchStrings, requirementId, updatedAt })
 
-  return database.prepare('SELECT * FROM requirement_search_strings WHERE requirementId = ?').get(requirementId) as RequirementSearchStringRecord
+  const savedSearchStrings = database.prepare('SELECT * FROM requirement_search_strings WHERE requirementId = ?').get(requirementId) as RequirementSearchStringRecord
+  recordAuditEvent(database, 'Search Strings Updated', user, `Updated search strings for ${requirement.reqId} · ${requirement.roleTitle}.`, {
+    entityType: 'Requirement',
+    entityId: requirementId,
+    details: JSON.stringify({ linkedinBoolean: Boolean(savedSearchStrings.linkedinBoolean), githubSearch: Boolean(savedSearchStrings.githubSearch), googleXray: Boolean(savedSearchStrings.googleXray) })
+  })
+  return savedSearchStrings
 }
 
 function normalizeCandidateInput(input: CandidateInput): CandidateInput {
@@ -1330,18 +1393,18 @@ function normalizeCandidateInput(input: CandidateInput): CandidateInput {
     expectedCtc: input.expectedCtc.trim(),
     noticePeriod: input.noticePeriod.trim(),
     servingNotice: Boolean(input.servingNotice),
-    lastWorkingDay: input.lastWorkingDay.trim(),
+    lastWorkingDay: normalizeOptionalDateInput(input.lastWorkingDay, 'Last working day'),
     primarySkills: input.primarySkills.trim(),
     secondarySkills: input.secondarySkills.trim(),
     sourceChannel: input.sourceChannel.trim(),
-    linkedinUrl: input.linkedinUrl.trim(),
-    githubUrl: input.githubUrl.trim(),
+    linkedinUrl: normalizeOptionalHttpUrl(input.linkedinUrl, 'LinkedIn URL'),
+    githubUrl: normalizeOptionalHttpUrl(input.githubUrl, 'GitHub URL'),
     resumeFilePath: input.resumeFilePath.trim(),
     sourcerName: input.sourcerName.trim(),
     recruiterName: input.recruiterName.trim(),
     status: input.status,
     remarks: input.remarks.trim(),
-    followUpDate: input.followUpDate.trim(),
+    followUpDate: normalizeOptionalDateInput(input.followUpDate, 'Follow-up date'),
     statusChangeNotes: input.statusChangeNotes?.trim() ?? ''
   }
 }
@@ -1373,6 +1436,8 @@ function prepareCandidateForStorage(database: Database.Database, input: Candidat
     servingNotice: candidate.servingNotice ? 1 : 0,
     stage: candidate.status,
     updatedAt: new Date().toISOString(),
+    sourcerName: candidate.sourcerName || requirement.assignedSourcer,
+    recruiterName: candidate.recruiterName || requirement.recruiterOwner,
     assignedRecruiter: requirement.recruiterOwner,
     assignedSourcer: requirement.assignedSourcer
   }
