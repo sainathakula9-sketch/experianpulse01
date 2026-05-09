@@ -2,9 +2,10 @@ import { BriefcaseBusiness, CalendarDays, ClipboardList, Copy, Download, FolderO
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import * as XLSX from 'xlsx'
-import type { AuthenticatedUser, RequirementInput, RequirementIntakeInput, RequirementPriority, RequirementSearchStringInput, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
+import type { AuthenticatedUser, CandidateRecord, RequirementInput, RequirementIntakeInput, RequirementPriority, RequirementSearchStringInput, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
 
 interface RequirementsProps {
+  candidates: CandidateRecord[]
   onRequirementsChange: () => void
   requirements: RequirementRecord[]
   user: AuthenticatedUser
@@ -236,13 +237,13 @@ function hasIntakeData(intake: RequirementIntakeInput): boolean {
   return Object.values(intake).some((value) => value.trim().length > 0)
 }
 
-export function Requirements({ onRequirementsChange, requirements, user }: RequirementsProps): JSX.Element {
+export function Requirements({ candidates, onRequirementsChange, requirements, user }: RequirementsProps): JSX.Element {
   const [formRequirement, setFormRequirement] = useState<RequirementInput>(() => createDefaultRequirement(user))
   const [editingRequirementId, setEditingRequirementId] = useState<number | undefined>()
   const [selectedRequirementId, setSelectedRequirementId] = useState<number | undefined>(requirements[0]?.id)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | undefined>()
-  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'intake' | 'search'>('overview')
+  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'intake' | 'search' | 'pipeline'>('overview')
   const [intakeForm, setIntakeForm] = useState<RequirementIntakeInput>(emptyIntake)
   const [isSavingIntake, setIsSavingIntake] = useState(false)
   const [intakeError, setIntakeError] = useState<string | undefined>()
@@ -253,6 +254,7 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
 
   const canManageRequirements = user.role === 'Admin' || user.role === 'Recruiter'
   const selectedRequirement = requirements.find((requirement) => requirement.id === selectedRequirementId) ?? requirements[0]
+  const selectedCandidates = selectedRequirement ? candidates.filter((candidate) => candidate.requirementId === selectedRequirement.id) : []
 
   useEffect(() => {
     setIntakeForm(toIntakeInput(selectedRequirement))
@@ -516,7 +518,7 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
 
             {selectedRequirement ? (
               <>
-                <div className="mb-5 grid grid-cols-3 gap-2 rounded-2xl bg-slate-50 p-1 text-sm font-bold">
+                <div className="mb-5 grid grid-cols-4 gap-2 rounded-2xl bg-slate-50 p-1 text-sm font-bold">
                   <button
                     className={`rounded-xl px-3 py-2 transition ${activeDetailTab === 'overview' ? 'bg-white text-experian-purple shadow-sm' : 'text-experian-slate'}`}
                     onClick={() => setActiveDetailTab('overview')}
@@ -537,6 +539,13 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
                     type="button"
                   >
                     <Search size={15} /> Search Strings
+                  </button>
+                  <button
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 transition ${activeDetailTab === 'pipeline' ? 'bg-white text-experian-purple shadow-sm' : 'text-experian-slate'}`}
+                    onClick={() => setActiveDetailTab('pipeline')}
+                    type="button"
+                  >
+                    <Users size={15} /> Pipeline
                   </button>
                 </div>
 
@@ -619,6 +628,36 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
                         {isSavingIntake ? 'Saving intake...' : 'Save intake call'}
                       </button>
                     </form>
+                  </div>
+                )}
+
+                {activeDetailTab === 'pipeline' && (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <h4 className="font-bold text-experian-ink">Candidate pipeline</h4>
+                      <p className="mt-1 text-sm text-experian-slate">{selectedCandidates.length} candidate profiles are attached to this requirement.</p>
+                    </div>
+                    {selectedCandidates.length === 0 ? (
+                      <p className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-experian-slate">No candidates added for this requirement yet. Use the Candidates page to add pipeline records.</p>
+                    ) : (
+                      selectedCandidates.map((candidate) => (
+                        <article className="rounded-2xl border border-slate-100 p-4" key={candidate.id}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <h5 className="font-bold text-experian-ink">{candidate.name}</h5>
+                              <p className="mt-1 text-xs text-experian-slate">{candidate.currentTitle || 'Title TBD'} · {candidate.currentCompany || 'Company TBD'}</p>
+                            </div>
+                            <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-experian-purple">{candidate.status}</span>
+                          </div>
+                          <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-experian-slate">
+                            <div className="rounded-xl bg-slate-50 p-2"><dt className="font-bold">Source</dt><dd>{candidate.sourceChannel || '—'}</dd></div>
+                            <div className="rounded-xl bg-slate-50 p-2"><dt className="font-bold">Location</dt><dd>{candidate.location || '—'}</dd></div>
+                            <div className="rounded-xl bg-slate-50 p-2"><dt className="font-bold">Sourcer</dt><dd>{candidate.sourcerName || candidate.assignedSourcer}</dd></div>
+                            <div className="rounded-xl bg-slate-50 p-2"><dt className="font-bold">Follow-up</dt><dd>{candidate.followUpDate || '—'}</dd></div>
+                          </dl>
+                        </article>
+                      ))
+                    )}
                   </div>
                 )}
 

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { authenticateUser, closeDatabase, connectDatabase, createRequirement, getPulseSnapshot, updateRequirement, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
-import type { RequirementInput, RequirementIntakeInput, RequirementSearchStringInput } from '../shared/types'
+import { authenticateUser, closeDatabase, connectDatabase, createCandidate, createRequirement, deleteCandidate, getPulseSnapshot, updateCandidate, updateRequirement, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
+import type { CandidateInput, RequirementInput, RequirementIntakeInput, RequirementSearchStringInput } from '../shared/types'
 
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
 let currentUser: ReturnType<typeof authenticateUser>['user']
@@ -42,6 +42,9 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('pulse:getSnapshot', () => getPulseSnapshot(currentUser))
+  ipcMain.handle('candidates:create', (_event, candidate: CandidateInput) => createCandidate(candidate, currentUser))
+  ipcMain.handle('candidates:update', (_event, payload: { id: number; candidate: CandidateInput }) => updateCandidate(payload.id, payload.candidate, currentUser))
+  ipcMain.handle('candidates:delete', (_event, id: number) => deleteCandidate(id, currentUser))
   ipcMain.handle('requirements:create', (_event, requirement: RequirementInput) => createRequirement(requirement, currentUser))
   ipcMain.handle('requirements:update', (_event, payload: { id: number; requirement: RequirementInput }) =>
     updateRequirement(payload.id, payload.requirement, currentUser)

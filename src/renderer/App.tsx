@@ -51,7 +51,27 @@ const fallbackSnapshot: PulseSnapshot = {
       name: 'Avery Johnson',
       requirementId: 1,
       requirementTitle: 'Senior Risk Analyst',
-      stage: 'Recruiter screen',
+      currentCompany: 'TransUnion',
+      currentTitle: 'Senior Risk Analyst',
+      totalExperience: '8 years',
+      relevantExperience: '6 years',
+      location: 'Costa Mesa, CA',
+      currentCtc: '$118k',
+      expectedCtc: '$135k',
+      noticePeriod: '30 days',
+      servingNotice: false,
+      lastWorkingDay: '',
+      primarySkills: 'Risk analytics, SQL, governance',
+      secondarySkills: 'Tableau, Python',
+      sourceChannel: 'LinkedIn',
+      linkedinUrl: 'https://linkedin.com/in/avery-johnson',
+      githubUrl: '',
+      resumeFilePath: 'resumes/avery-johnson.pdf',
+      sourcerName: 'sourcer',
+      recruiterName: 'recruiter',
+      status: 'Screen Shortlisted',
+      remarks: 'Strong risk controls background.',
+      followUpDate: '2026-05-12',
       updatedAt: '2026-05-07',
       assignedRecruiter: 'recruiter',
       assignedSourcer: 'sourcer'
@@ -126,9 +146,9 @@ function App(): JSX.Element {
 
     switch (activePage) {
       case 'requirements':
-        return <Requirements onRequirementsChange={refreshSnapshot} requirements={snapshot.requirements} user={currentUser} />
+        return <Requirements candidates={snapshot.candidates} onRequirementsChange={refreshSnapshot} requirements={snapshot.requirements} user={currentUser} />
       case 'candidates':
-        return <Candidates candidates={snapshot.candidates} requirements={snapshot.requirements} user={currentUser} />
+        return <Candidates candidates={snapshot.candidates} onCandidatesChange={refreshSnapshot} requirements={snapshot.requirements} user={currentUser} />
       case 'reports':
         return <Reports reports={snapshot.reports} />
       case 'settings':
