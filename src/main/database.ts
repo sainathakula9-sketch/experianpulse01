@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import type { AuditActionType, AuditTrailFilters, AuditTrailInput, AuditTrailRecord, AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, CandidateStatusHistoryRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserManagementInput, UserManagementRecord, UserRole, WorkspaceSettingsInput } from '../shared/types'
 import { createHash } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createBackup, createStartupBackupIfNeeded, getDailyBackupDirectory, restoreBackup, setOneDriveBackupFolder, type BackupResult, type BackupSettings } from './backup'
 
@@ -217,6 +217,28 @@ function ensureDatabaseDirectory(): string {
   return dataDirectory
 }
 
+function getDatabaseFilePath(): string {
+  return join(ensureDatabaseDirectory(), 'experian-pulse.sqlite')
+}
+
+function moveAsideDatabaseFiles(databasePath: string): void {
+  const recoveryStamp = new Date().toISOString().replace(/[:.]/g, '-')
+  ;[databasePath, `${databasePath}-wal`, `${databasePath}-shm`].forEach((path) => {
+    if (existsSync(path)) {
+      renameSync(path, `${path}.failed-${recoveryStamp}`)
+    }
+  })
+}
+
+function openDatabase(databasePath: string): Database.Database {
+  const database = new Database(databasePath)
+  database.pragma('journal_mode = WAL')
+  database.pragma('foreign_keys = ON')
+  initialiseSchema(database)
+  seedMockData(database)
+  return database
+}
+
 function hashPassword(password: string): string {
   return createHash('sha256').update(`${passwordSalt}:${password}`).digest('hex')
 }
@@ -226,11 +248,26 @@ export function connectDatabase(): Database.Database {
     return db
   }
 
-  db = new Database(join(ensureDatabaseDirectory(), 'experian-pulse.sqlite'))
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  initialiseSchema(db)
-  seedMockData(db)
+  const databasePath = getDatabaseFilePath()
+
+  try {
+    db = openDatabase(databasePath)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      db?.close()
+    } catch {
+      // Ignore close errors while recovering from a failed SQLite open.
+    }
+    db = undefined
+    moveAsideDatabaseFiles(databasePath)
+    db = openDatabase(databasePath)
+    recordAuditEvent(db, 'Restore Performed', undefined, 'Recovered local SQLite workspace after startup failure.', {
+      entityType: 'Database',
+      details: message
+    })
+  }
+
   return db
 }
 

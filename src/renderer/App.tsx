@@ -12,6 +12,27 @@ import type { AuthenticatedUser, PulseSnapshot } from '../shared/types'
 
 export type PageKey = 'dashboard' | 'requirements' | 'candidates' | 'ai-assistant' | 'reports' | 'audit' | 'settings'
 
+const pageKeys: PageKey[] = ['dashboard', 'requirements', 'candidates', 'ai-assistant', 'reports', 'audit', 'settings']
+
+const pageRoles: Record<PageKey, AuthenticatedUser['role'][]> = {
+  dashboard: ['Admin', 'Recruiter'],
+  requirements: ['Admin', 'Recruiter', 'Sourcer'],
+  candidates: ['Admin', 'Recruiter', 'Sourcer'],
+  'ai-assistant': ['Admin', 'Recruiter', 'Sourcer'],
+  reports: ['Admin'],
+  audit: ['Admin'],
+  settings: ['Admin']
+}
+
+function parseHashPage(): PageKey | undefined {
+  const hashPage = window.location.hash.replace(/^#\/?/, '')
+  return pageKeys.includes(hashPage as PageKey) ? (hashPage as PageKey) : undefined
+}
+
+function canUserOpenPage(user: AuthenticatedUser, page: PageKey): boolean {
+  return pageRoles[page].includes(user.role)
+}
+
 const fallbackSnapshot: PulseSnapshot = {
   requirements: [
     {
@@ -150,21 +171,21 @@ function getDefaultPage(user: AuthenticatedUser): PageKey {
 }
 
 function App(): JSX.Element {
-  const [activePage, setActivePage] = useState<PageKey>('dashboard')
+  const [activePage, setActivePage] = useState<PageKey>(() => parseHashPage() ?? 'dashboard')
   const [snapshot, setSnapshot] = useState<PulseSnapshot>(fallbackSnapshot)
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser | undefined>()
   const [isSnapshotLoading, setIsSnapshotLoading] = useState(false)
   const [snapshotError, setSnapshotError] = useState('')
 
   const refreshSnapshot = (): void => {
-    if (!currentUser) {
+    if (!currentUser || !window.experianPulse) {
       return
     }
 
     setIsSnapshotLoading(true)
     setSnapshotError('')
     window.experianPulse
-      ?.getSnapshot(currentUser)
+      .getSnapshot(currentUser)
       .then((nextSnapshot) => {
         setSnapshot(nextSnapshot)
       })
@@ -176,18 +197,55 @@ function App(): JSX.Element {
   }
 
   useEffect(() => {
+    const handleHashChange = (): void => {
+      const hashPage = parseHashPage()
+      if (hashPage) {
+        setActivePage(hashPage)
+      }
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  useEffect(() => {
+    if (!currentUser) {
+      return
+    }
+
+    const nextPage = canUserOpenPage(currentUser, activePage) ? activePage : getDefaultPage(currentUser)
+    if (nextPage !== activePage) {
+      setActivePage(nextPage)
+      return
+    }
+
+    if (window.location.hash !== `#/${nextPage}`) {
+      window.location.hash = `/${nextPage}`
+    }
+  }, [activePage, currentUser])
+
+  useEffect(() => {
     refreshSnapshot()
   }, [currentUser])
 
   const handleLogin = (user: AuthenticatedUser): void => {
+    const hashPage = parseHashPage()
+    const nextPage = hashPage && canUserOpenPage(user, hashPage) ? hashPage : getDefaultPage(user)
     setCurrentUser(user)
-    setActivePage(getDefaultPage(user))
+    setActivePage(nextPage)
+    window.location.hash = `/${nextPage}`
+  }
+
+  const handleNavigate = (page: PageKey): void => {
+    setActivePage(page)
+    window.location.hash = `/${page}`
   }
 
   const handleLogout = (): void => {
-    window.experianPulse.logout().catch(() => undefined)
+    window.experianPulse?.logout().catch(() => undefined)
     setCurrentUser(undefined)
     setActivePage('dashboard')
+    window.location.hash = ''
   }
 
   const page = useMemo(() => {
@@ -214,12 +272,24 @@ function App(): JSX.Element {
     }
   }, [activePage, currentUser, snapshot])
 
+  if (!window.experianPulse) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-experian-mist px-4 py-6 text-experian-ink sm:px-8">
+        <section className="max-w-xl rounded-3xl border border-rose-100 bg-white p-8 text-center shadow-enterprise">
+          <p className="text-xs font-bold uppercase tracking-[0.25em] text-rose-500">Startup issue</p>
+          <h1 className="mt-3 text-3xl font-black">Experian Pulse could not load its Electron bridge.</h1>
+          <p className="mt-4 text-sm leading-6 text-experian-slate">Restart the desktop app so the preload script can connect React to the local SQLite workspace.</p>
+        </section>
+      </main>
+    )
+  }
+
   if (!currentUser) {
     return <main className="min-h-screen bg-experian-mist px-4 py-6 text-experian-ink sm:px-8">{page}</main>
   }
 
   return (
-    <Layout activePage={activePage} currentUser={currentUser} onLogout={handleLogout} onNavigate={setActivePage}>
+    <Layout activePage={activePage} currentUser={currentUser} onLogout={handleLogout} onNavigate={handleNavigate}>
       {isSnapshotLoading ? (
         <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-semibold text-experian-blue">Loading the latest SQLite workspace data…</div>
       ) : null}
