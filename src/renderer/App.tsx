@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout } from './components/Layout'
+import { AuditTrail } from './pages/AuditTrail'
 import { Candidates } from './pages/Candidates'
 import { Dashboard } from './pages/Dashboard'
 import { Login } from './pages/Login'
@@ -8,7 +9,7 @@ import { Requirements } from './pages/Requirements'
 import { SettingsPage } from './pages/Settings'
 import type { AuthenticatedUser, PulseSnapshot } from '../shared/types'
 
-export type PageKey = 'dashboard' | 'requirements' | 'candidates' | 'reports' | 'settings'
+export type PageKey = 'dashboard' | 'requirements' | 'candidates' | 'reports' | 'audit' | 'settings'
 
 const fallbackSnapshot: PulseSnapshot = {
   requirements: [
@@ -190,6 +191,8 @@ function App(): JSX.Element {
         return <Candidates candidates={snapshot.candidates} onCandidatesChange={refreshSnapshot} requirements={snapshot.requirements} settings={snapshot.settings} user={currentUser} />
       case 'reports':
         return <Reports reports={snapshot.reports} />
+      case 'audit':
+        return <AuditTrail settings={snapshot.settings} />
       case 'settings':
         return <SettingsPage onSettingsChange={refreshSnapshot} settings={snapshot.settings} user={currentUser} />
       case 'dashboard':
