@@ -135,7 +135,24 @@ export interface ReportRecord {
   owner: string
 }
 
-export interface SettingsRecord {
+export type BackupStatusLevel = 'Never Run' | 'Success' | 'Warning' | 'Failed' | 'Restored'
+
+export interface BackupSettingsRecord {
+  oneDriveBackupFolder: string
+  localBackupFolder: string
+  lastBackupAt: string
+  lastBackupStatus: BackupStatusLevel | string
+  lastBackupPath: string
+}
+
+export interface BackupResult extends BackupSettingsRecord {
+  success: boolean
+  message: string
+  localBackupPath?: string
+  oneDriveBackupPath?: string
+}
+
+export interface SettingsRecord extends BackupSettingsRecord {
   organizationName: string
   dataRegion: string
   notificationsEnabled: boolean

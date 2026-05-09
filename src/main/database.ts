@@ -4,6 +4,7 @@ import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatu
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { createBackup, createStartupBackupIfNeeded, getDailyBackupDirectory, restoreBackup, setOneDriveBackupFolder, type BackupResult, type BackupSettings } from './backup'
 
 let db: Database.Database | undefined
 
@@ -198,10 +199,10 @@ const mockReports: Omit<ReportRecord, 'id'>[] = [
   }
 ]
 
-function getDatabasePath(): string {
+function ensureDatabaseDirectory(): string {
   const dataDirectory = join(app.getPath('userData'), 'data')
   mkdirSync(dataDirectory, { recursive: true })
-  return join(dataDirectory, 'experian-pulse.sqlite')
+  return dataDirectory
 }
 
 function hashPassword(password: string): string {
@@ -213,7 +214,7 @@ export function connectDatabase(): Database.Database {
     return db
   }
 
-  db = new Database(getDatabasePath())
+  db = new Database(join(ensureDatabaseDirectory(), 'experian-pulse.sqlite'))
   db.pragma('journal_mode = WAL')
   initialiseSchema(db)
   seedMockData(db)
@@ -349,7 +350,11 @@ function initialiseSchema(database: Database.Database): void {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       organizationName TEXT NOT NULL,
       dataRegion TEXT NOT NULL,
-      notificationsEnabled INTEGER NOT NULL DEFAULT 1
+      notificationsEnabled INTEGER NOT NULL DEFAULT 1,
+      oneDriveBackupFolder TEXT NOT NULL DEFAULT '',
+      lastBackupAt TEXT NOT NULL DEFAULT '',
+      lastBackupStatus TEXT NOT NULL DEFAULT 'Never Run',
+      lastBackupPath TEXT NOT NULL DEFAULT ''
     );
   `)
 
@@ -390,6 +395,10 @@ function initialiseSchema(database: Database.Database): void {
   addColumnIfMissing(database, 'candidates', 'stage', "TEXT NOT NULL DEFAULT 'New Profile'")
   addColumnIfMissing(database, 'candidates', 'remarks', "TEXT NOT NULL DEFAULT ''")
   addColumnIfMissing(database, 'candidates', 'followUpDate', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'settings', 'oneDriveBackupFolder', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'settings', 'lastBackupAt', "TEXT NOT NULL DEFAULT ''")
+  addColumnIfMissing(database, 'settings', 'lastBackupStatus', "TEXT NOT NULL DEFAULT 'Never Run'")
+  addColumnIfMissing(database, 'settings', 'lastBackupPath', "TEXT NOT NULL DEFAULT ''")
   migrateLegacyRequirements(database)
   migrateRequirementLifecycleDates(database)
   migrateLegacyCandidates(database)
@@ -1236,6 +1245,10 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
     organizationName: string
     dataRegion: string
     notificationsEnabled: number
+    oneDriveBackupFolder: string
+    lastBackupAt: string
+    lastBackupStatus: string
+    lastBackupPath: string
   }
 
   const requirements = filterByUser(allRequirements, user)
@@ -1248,10 +1261,41 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
     settings: {
       organizationName: settingsRow.organizationName,
       dataRegion: settingsRow.dataRegion,
-      notificationsEnabled: Boolean(settingsRow.notificationsEnabled)
+      notificationsEnabled: Boolean(settingsRow.notificationsEnabled),
+      oneDriveBackupFolder: settingsRow.oneDriveBackupFolder,
+      localBackupFolder: getDailyBackupDirectory(),
+      lastBackupAt: settingsRow.lastBackupAt,
+      lastBackupStatus: settingsRow.lastBackupStatus,
+      lastBackupPath: settingsRow.lastBackupPath
     },
     metrics: buildRecruiterMetrics(requirements, candidates, reports, user)
   }
+}
+
+export function getBackupSettings(): BackupSettings & { localBackupFolder: string } {
+  const database = connectDatabase()
+  const settings = database.prepare('SELECT oneDriveBackupFolder, lastBackupAt, lastBackupStatus, lastBackupPath FROM settings WHERE id = 1').get() as BackupSettings
+  return { ...settings, localBackupFolder: getDailyBackupDirectory() }
+}
+
+export async function runBackupNow(): Promise<BackupResult> {
+  return createBackup(connectDatabase(), 'Manual')
+}
+
+export async function runStartupBackup(): Promise<BackupResult | undefined> {
+  return createStartupBackupIfNeeded(connectDatabase())
+}
+
+export function updateOneDriveBackupFolder(folderPath: string): BackupSettings & { localBackupFolder: string } {
+  const settings = setOneDriveBackupFolder(connectDatabase(), folderPath)
+  return { ...settings, localBackupFolder: getDailyBackupDirectory() }
+}
+
+export function restoreFromBackup(zipPath: string): BackupResult {
+  const database = connectDatabase()
+  const result = restoreBackup(database, zipPath)
+  db = undefined
+  return result
 }
 
 export function closeDatabase(): void {

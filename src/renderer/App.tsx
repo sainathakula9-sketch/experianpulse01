@@ -106,7 +106,12 @@ const fallbackSnapshot: PulseSnapshot = {
   settings: {
     organizationName: 'Experian Pulse Demo',
     dataRegion: 'United States',
-    notificationsEnabled: true
+    notificationsEnabled: true,
+    oneDriveBackupFolder: '',
+    localBackupFolder: '',
+    lastBackupAt: '',
+    lastBackupStatus: 'Never Run',
+    lastBackupPath: ''
   },
   metrics: {
     complianceScore: 92,
@@ -179,7 +184,7 @@ function App(): JSX.Element {
       case 'reports':
         return <Reports reports={snapshot.reports} />
       case 'settings':
-        return <SettingsPage settings={snapshot.settings} />
+        return <SettingsPage onSettingsChange={refreshSnapshot} settings={snapshot.settings} />
       case 'dashboard':
       default:
         return <Dashboard snapshot={snapshot} user={currentUser} />
