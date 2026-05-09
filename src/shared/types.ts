@@ -42,6 +42,19 @@ export interface RequirementIntakeRecord {
 
 export type RequirementIntakeInput = Omit<RequirementIntakeRecord, 'id' | 'requirementId' | 'updatedAt'>
 
+export interface RequirementSearchStringRecord {
+  id: number
+  requirementId: number
+  linkedinBoolean: string
+  githubSearch: string
+  naukriKeywords: string
+  googleXray: string
+  diversitySourcing: string
+  updatedAt: string
+}
+
+export type RequirementSearchStringInput = Omit<RequirementSearchStringRecord, 'id' | 'requirementId' | 'updatedAt'>
+
 export interface RequirementRecord {
   id: number
   reqId: string
@@ -58,9 +71,10 @@ export interface RequirementRecord {
   assignedSourcer: string
   status: RequirementStatus
   intake?: RequirementIntakeRecord
+  searchStrings?: RequirementSearchStringRecord
 }
 
-export type RequirementInput = Omit<RequirementRecord, 'id' | 'intake'>
+export type RequirementInput = Omit<RequirementRecord, 'id' | 'intake' | 'searchStrings'>
 
 export interface CandidateRecord {
   id: number

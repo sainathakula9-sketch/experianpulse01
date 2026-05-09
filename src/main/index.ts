@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { authenticateUser, closeDatabase, connectDatabase, createRequirement, getPulseSnapshot, updateRequirement, upsertRequirementIntake } from './database'
-import type { RequirementInput, RequirementIntakeInput } from '../shared/types'
+import { authenticateUser, closeDatabase, connectDatabase, createRequirement, getPulseSnapshot, updateRequirement, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
+import type { RequirementInput, RequirementIntakeInput, RequirementSearchStringInput } from '../shared/types'
 
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
 let currentUser: ReturnType<typeof authenticateUser>['user']
@@ -48,6 +48,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('requirements:saveIntake', (_event, payload: { requirementId: number; intake: RequirementIntakeInput }) =>
     upsertRequirementIntake(payload.requirementId, payload.intake, currentUser)
+  )
+  ipcMain.handle('requirements:saveSearchStrings', (_event, payload: { requirementId: number; searchStrings: RequirementSearchStringInput }) =>
+    upsertRequirementSearchStrings(payload.requirementId, payload.searchStrings, currentUser)
   )
   createWindow()
 

@@ -1,8 +1,8 @@
-import { BriefcaseBusiness, CalendarDays, ClipboardList, Download, FolderOpen, Pencil, PlusCircle, Upload, Users } from 'lucide-react'
+import { BriefcaseBusiness, CalendarDays, ClipboardList, Copy, Download, FolderOpen, Pencil, PlusCircle, Search, Upload, Users, WandSparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import * as XLSX from 'xlsx'
-import type { AuthenticatedUser, RequirementInput, RequirementIntakeInput, RequirementPriority, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
+import type { AuthenticatedUser, RequirementInput, RequirementIntakeInput, RequirementPriority, RequirementSearchStringInput, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
 
 interface RequirementsProps {
   onRequirementsChange: () => void
@@ -47,6 +47,23 @@ const emptyIntake: RequirementIntakeInput = {
   hiringManagerExpectations: '',
   additionalNotes: ''
 }
+
+
+const emptySearchStrings: RequirementSearchStringInput = {
+  linkedinBoolean: '',
+  githubSearch: '',
+  naukriKeywords: '',
+  googleXray: '',
+  diversitySourcing: ''
+}
+
+const searchStringFields: Array<{ key: keyof RequirementSearchStringInput; label: string; help: string }> = [
+  { key: 'linkedinBoolean', label: 'LinkedIn Boolean', help: 'Use in LinkedIn Recruiter or people search keyword fields.' },
+  { key: 'githubSearch', label: 'GitHub search', help: 'Use in GitHub user, code, and profile keyword searches.' },
+  { key: 'naukriKeywords', label: 'Naukri keywords', help: 'Paste into Naukri keyword search with experience filters.' },
+  { key: 'googleXray', label: 'Google X-Ray search', help: 'Search public LinkedIn profiles from Google.' },
+  { key: 'diversitySourcing', label: 'Diversity sourcing search', help: 'Adds inclusive community and affinity sourcing terms.' }
+]
 
 const intakeFields: Array<{ key: keyof RequirementIntakeInput; label: string; multiline?: boolean }> = [
   { key: 'roleSummary', label: 'Role summary', multiline: true },
@@ -142,6 +159,79 @@ function toIntakeInput(requirement?: RequirementRecord): RequirementIntakeInput 
   }
 }
 
+
+function toSearchStringInput(requirement?: RequirementRecord): RequirementSearchStringInput {
+  if (!requirement?.searchStrings) {
+    return emptySearchStrings
+  }
+
+  return {
+    linkedinBoolean: requirement.searchStrings.linkedinBoolean,
+    githubSearch: requirement.searchStrings.githubSearch,
+    naukriKeywords: requirement.searchStrings.naukriKeywords,
+    googleXray: requirement.searchStrings.googleXray,
+    diversitySourcing: requirement.searchStrings.diversitySourcing
+  }
+}
+
+function splitSearchTerms(value: string): string[] {
+  return value
+    .split(/[\n,;|]+/)
+    .map((term) => term.trim())
+    .filter(Boolean)
+}
+
+function uniqueTerms(terms: string[]): string[] {
+  return [...new Set(terms.map((term) => term.trim()).filter(Boolean))]
+}
+
+function quoteTerm(term: string): string {
+  return /\s/.test(term) ? `"${term}"` : term
+}
+
+function booleanGroup(terms: string[]): string {
+  const unique = uniqueTerms(terms).slice(0, 8)
+  if (unique.length === 0) {
+    return ''
+  }
+
+  return `(${unique.map(quoteTerm).join(' OR ')})`
+}
+
+function companyAvoidance(companies: string[]): string {
+  return uniqueTerms(companies).map((company) => `NOT ${quoteTerm(company)}`).join(' ')
+}
+
+function generateRequirementSearchStrings(requirement: RequirementRecord, intake: RequirementIntakeInput): RequirementSearchStringInput {
+  const primarySkills = splitSearchTerms(`${intake.primarySkills}\n${intake.mustHaveSkills}`)
+  const secondarySkills = splitSearchTerms(`${intake.secondarySkills}\n${intake.goodToHaveSkills}`)
+  const companiesToAvoid = splitSearchTerms(intake.companiesToAvoid)
+  const targetCompanies = splitSearchTerms(intake.targetCompanies)
+  const titleGroup = booleanGroup([requirement.roleTitle, requirement.roleTitle.replace(/senior|lead|manager/gi, '').trim()].filter(Boolean))
+  const primaryGroup = booleanGroup(primarySkills)
+  const secondaryGroup = booleanGroup(secondarySkills)
+  const targetCompanyGroup = booleanGroup(targetCompanies)
+  const locationTerm = requirement.workMode === 'Remote' ? 'remote' : requirement.location
+  const avoid = companyAvoidance(companiesToAvoid)
+  const experienceRange = [intake.minimumExperience, intake.maximumExperience].filter(Boolean).join('-')
+  const githubKeywords = uniqueTerms([requirement.roleTitle, ...primarySkills, ...secondarySkills, locationTerm]).map(quoteTerm).join(' ')
+  const naukriKeywords = uniqueTerms([requirement.roleTitle, ...primarySkills, ...secondarySkills, experienceRange, locationTerm]).filter(Boolean).map(quoteTerm).join(' ')
+  const diversityFocusTerms = splitSearchTerms(intake.diversityFocus)
+  const diversityGroup = booleanGroup(
+    diversityFocusTerms.length > 0
+      ? diversityFocusTerms
+      : ['women in tech', 'diversity tech', 'black professionals', 'latinx tech', 'veterans in tech']
+  )
+
+  return {
+    linkedinBoolean: [titleGroup, primaryGroup, secondaryGroup, targetCompanyGroup, quoteTerm(locationTerm), avoid].filter(Boolean).join(' AND '),
+    githubSearch: `${githubKeywords} followers:>10 repos:>2`,
+    naukriKeywords,
+    googleXray: [`site:linkedin.com/in`, titleGroup, primaryGroup, quoteTerm(locationTerm), '-jobs', '-job', '-hiring', avoid].filter(Boolean).join(' '),
+    diversitySourcing: [`site:linkedin.com/in`, titleGroup, primaryGroup, diversityGroup, quoteTerm(locationTerm), '-jobs', '-job', avoid].filter(Boolean).join(' ')
+  }
+}
+
 function hasIntakeData(intake: RequirementIntakeInput): boolean {
   return Object.values(intake).some((value) => value.trim().length > 0)
 }
@@ -152,10 +242,14 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
   const [selectedRequirementId, setSelectedRequirementId] = useState<number | undefined>(requirements[0]?.id)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | undefined>()
-  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'intake'>('overview')
+  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'intake' | 'search'>('overview')
   const [intakeForm, setIntakeForm] = useState<RequirementIntakeInput>(emptyIntake)
   const [isSavingIntake, setIsSavingIntake] = useState(false)
   const [intakeError, setIntakeError] = useState<string | undefined>()
+  const [searchStringForm, setSearchStringForm] = useState<RequirementSearchStringInput>(emptySearchStrings)
+  const [isSavingSearchStrings, setIsSavingSearchStrings] = useState(false)
+  const [searchStringError, setSearchStringError] = useState<string | undefined>()
+  const [copiedSearchString, setCopiedSearchString] = useState<keyof RequirementSearchStringInput | undefined>()
 
   const canManageRequirements = user.role === 'Admin' || user.role === 'Recruiter'
   const selectedRequirement = requirements.find((requirement) => requirement.id === selectedRequirementId) ?? requirements[0]
@@ -163,7 +257,10 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
   useEffect(() => {
     setIntakeForm(toIntakeInput(selectedRequirement))
     setIntakeError(undefined)
-  }, [selectedRequirement?.id, selectedRequirement?.intake?.updatedAt])
+    setSearchStringForm(toSearchStringInput(selectedRequirement))
+    setSearchStringError(undefined)
+    setCopiedSearchString(undefined)
+  }, [selectedRequirement?.id, selectedRequirement?.intake?.updatedAt, selectedRequirement?.searchStrings?.updatedAt])
 
   const metrics = useMemo(() => {
     const openCount = requirements.filter((requirement) => requirement.status === 'Open').length
@@ -191,6 +288,10 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
 
   const updateIntakeField = <K extends keyof RequirementIntakeInput>(field: K, value: RequirementIntakeInput[K]): void => {
     setIntakeForm((currentIntake) => ({ ...currentIntake, [field]: value }))
+  }
+
+  const updateSearchStringField = <K extends keyof RequirementSearchStringInput>(field: K, value: RequirementSearchStringInput[K]): void => {
+    setSearchStringForm((currentSearchStrings) => ({ ...currentSearchStrings, [field]: value }))
   }
 
   const editRequirement = (requirement: RequirementRecord): void => {
@@ -249,6 +350,47 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
     } finally {
       setIsSavingIntake(false)
     }
+  }
+
+  const generateSearchStrings = (): void => {
+    if (!selectedRequirement) {
+      return
+    }
+
+    setSearchStringForm(generateRequirementSearchStrings(selectedRequirement, intakeForm))
+    setSearchStringError(undefined)
+    setCopiedSearchString(undefined)
+  }
+
+  const saveSearchStrings = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+
+    if (!selectedRequirement) {
+      return
+    }
+
+    setIsSavingSearchStrings(true)
+    setSearchStringError(undefined)
+
+    try {
+      const savedSearchStrings = await window.experianPulse.saveRequirementSearchStrings(selectedRequirement.id, searchStringForm)
+      setSearchStringForm(toSearchStringInput({ ...selectedRequirement, searchStrings: savedSearchStrings }))
+      onRequirementsChange()
+    } catch (error) {
+      setSearchStringError(error instanceof Error ? error.message : 'Unable to save search strings.')
+    } finally {
+      setIsSavingSearchStrings(false)
+    }
+  }
+
+  const copySearchString = async (field: keyof RequirementSearchStringInput): Promise<void> => {
+    const value = searchStringForm[field].trim()
+    if (!value) {
+      return
+    }
+
+    await navigator.clipboard.writeText(value)
+    setCopiedSearchString(field)
   }
 
   const exportWorkbook = (): void => {
@@ -374,7 +516,7 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
 
             {selectedRequirement ? (
               <>
-                <div className="mb-5 grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-1 text-sm font-bold">
+                <div className="mb-5 grid grid-cols-3 gap-2 rounded-2xl bg-slate-50 p-1 text-sm font-bold">
                   <button
                     className={`rounded-xl px-3 py-2 transition ${activeDetailTab === 'overview' ? 'bg-white text-experian-purple shadow-sm' : 'text-experian-slate'}`}
                     onClick={() => setActiveDetailTab('overview')}
@@ -389,9 +531,16 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
                   >
                     <ClipboardList size={15} /> Intake Call
                   </button>
+                  <button
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 transition ${activeDetailTab === 'search' ? 'bg-white text-experian-purple shadow-sm' : 'text-experian-slate'}`}
+                    onClick={() => setActiveDetailTab('search')}
+                    type="button"
+                  >
+                    <Search size={15} /> Search Strings
+                  </button>
                 </div>
 
-                {activeDetailTab === 'overview' ? (
+                {activeDetailTab === 'overview' && (
                   <dl className="space-y-3 text-sm">
                     {[
                       ['Req ID', selectedRequirement.reqId],
@@ -412,7 +561,9 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
                       </div>
                     ))}
                   </dl>
-                ) : (
+                )}
+
+                {activeDetailTab === 'intake' && (
                   <div className="space-y-5">
                     <section className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
                       <div className="flex items-center justify-between gap-3">
@@ -470,6 +621,57 @@ export function Requirements({ onRequirementsChange, requirements, user }: Requi
                     </form>
                   </div>
                 )}
+
+                {activeDetailTab === 'search' && (
+                  <form className="space-y-5" onSubmit={saveSearchStrings}>
+                    <section className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="font-bold text-experian-ink">Search strings workspace</h4>
+                          <p className="mt-1 text-sm text-experian-slate">Rule-based strings are generated from the requirement and intake fields, then can be edited before saving.</p>
+                        </div>
+                        {selectedRequirement.searchStrings?.updatedAt && <span className="text-xs font-semibold text-experian-slate">Updated {new Date(selectedRequirement.searchStrings.updatedAt).toLocaleString()}</span>}
+                      </div>
+                      <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-experian-purple px-4 py-3 text-sm font-bold text-white shadow-lg shadow-purple-100" onClick={generateSearchStrings} type="button">
+                        <WandSparkles size={16} /> Generate Search Strings
+                      </button>
+                    </section>
+
+                    <div className="space-y-4">
+                      {searchStringFields.map(({ help, key, label }) => (
+                        <label className="block rounded-2xl border border-slate-100 bg-white p-4 text-sm font-semibold text-experian-slate" key={key}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <span className="font-bold text-experian-ink">{label}</span>
+                              <p className="mt-1 text-xs font-medium leading-5 text-experian-slate">{help}</p>
+                            </div>
+                            <button
+                              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-bold text-experian-slate disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={!searchStringForm[key].trim()}
+                              onClick={() => copySearchString(key)}
+                              type="button"
+                            >
+                              <Copy size={13} /> {copiedSearchString === key ? 'Copied' : 'Copy'}
+                            </button>
+                          </div>
+                          <textarea
+                            className="mt-3 min-h-28 w-full rounded-2xl border border-slate-200 px-4 py-3 font-mono text-xs leading-5 text-experian-ink outline-none ring-experian-blue/20 focus:ring-4"
+                            onChange={(event) => updateSearchStringField(key, event.target.value)}
+                            placeholder={`Generate or enter ${label.toLowerCase()}`}
+                            value={searchStringForm[key]}
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    {searchStringError && <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{searchStringError}</p>}
+
+                    <button className="w-full rounded-2xl bg-experian-blue px-5 py-3 font-bold text-white shadow-lg shadow-blue-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={isSavingSearchStrings} type="submit">
+                      {isSavingSearchStrings ? 'Saving search strings...' : 'Save final strings'}
+                    </button>
+                  </form>
+                )}
+
               </>
             ) : (
               <p className="text-sm text-experian-slate">Select a requirement card to open its detail page.</p>
