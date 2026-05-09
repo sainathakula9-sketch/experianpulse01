@@ -248,6 +248,13 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
     }
 
     exportCandidatesForRequirement(excelRequirement, excelCandidates)
+    window.experianPulse.recordAudit({
+      actionType: 'Excel Export',
+      entityType: 'Requirement',
+      entityId: excelRequirement.id,
+      summary: `Exported candidates for ${excelRequirement.reqId}.`,
+      details: JSON.stringify({ candidates: excelCandidates.length, file: `${excelRequirement.reqId}-candidates.xlsx` })
+    }).catch(() => undefined)
   }
 
   const importCandidates = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
@@ -280,6 +287,13 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
       }
 
       setImportSummary({ imported, errors })
+      await window.experianPulse.recordAudit({
+        actionType: 'Excel Import',
+        entityType: 'Requirement',
+        entityId: excelRequirement.id,
+        summary: `Imported ${imported} candidate${imported === 1 ? '' : 's'} into ${excelRequirement.reqId}.`,
+        details: JSON.stringify({ imported, errors: errors.length, file: file.name })
+      }).catch(() => undefined)
       onCandidatesChange()
     } catch (error) {
       setImportSummary({ imported: 0, errors: [error instanceof Error ? error.message : 'Unable to read Excel file.'] })

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import type { AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, CandidateStatusHistoryRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserManagementInput, UserManagementRecord, UserRole, WorkspaceSettingsInput } from '../shared/types'
+import type { AuditActionType, AuditTrailFilters, AuditTrailInput, AuditTrailRecord, AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, CandidateStatusHistoryRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserManagementInput, UserManagementRecord, UserRole, WorkspaceSettingsInput } from '../shared/types'
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -228,6 +228,7 @@ export function connectDatabase(): Database.Database {
 
   db = new Database(join(ensureDatabaseDirectory(), 'experian-pulse.sqlite'))
   db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
   initialiseSchema(db)
   seedMockData(db)
   return db
@@ -349,6 +350,23 @@ function initialiseSchema(database: Database.Database): void {
       notes TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (candidateId) REFERENCES candidates(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS audit_trail (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      username TEXT NOT NULL,
+      userDisplayName TEXT NOT NULL,
+      actionType TEXT NOT NULL,
+      entityType TEXT NOT NULL DEFAULT '',
+      entityId TEXT NOT NULL DEFAULT '',
+      summary TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_trail_created_at ON audit_trail(createdAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_trail_username ON audit_trail(username);
+    CREATE INDEX IF NOT EXISTS idx_audit_trail_action_type ON audit_trail(actionType);
 
     CREATE TABLE IF NOT EXISTS reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -653,6 +671,7 @@ export function authenticateUser(username: string, password: string): LoginResul
     return { success: false, message: 'Invalid username or password.' }
   }
 
+  recordAuditEvent(database, 'User Login', user, `${user.displayName} signed in.`, { entityType: 'User', entityId: user.id })
   return { success: true, user }
 }
 
@@ -661,6 +680,76 @@ function assertAdmin(user?: AuthenticatedUser): void {
     throw new Error('Only admins can manage users.')
   }
 }
+
+function recordAuditEvent(
+  database: Database.Database,
+  actionType: AuditActionType,
+  user: AuthenticatedUser | undefined,
+  summary: string,
+  options: { entityType?: string; entityId?: string | number; details?: string } = {}
+): void {
+  const auditUser = user ?? { id: null, username: 'system', displayName: 'System' }
+  database
+    .prepare(
+      `INSERT INTO audit_trail (userId, username, userDisplayName, actionType, entityType, entityId, summary, details, createdAt)
+       VALUES (@userId, @username, @userDisplayName, @actionType, @entityType, @entityId, @summary, @details, @createdAt)`
+    )
+    .run({
+      userId: auditUser.id,
+      username: auditUser.username,
+      userDisplayName: auditUser.displayName,
+      actionType,
+      entityType: options.entityType ?? '',
+      entityId: String(options.entityId ?? ''),
+      summary,
+      details: options.details ?? '',
+      createdAt: new Date().toISOString()
+    })
+}
+
+export function recordAuditAction(input: AuditTrailInput, user?: AuthenticatedUser): AuditTrailRecord {
+  if (!user) {
+    throw new Error('You must be logged in to record audit events.')
+  }
+
+  const database = connectDatabase()
+  recordAuditEvent(database, input.actionType, user, input.summary, {
+    entityType: input.entityType,
+    entityId: input.entityId,
+    details: input.details
+  })
+  return database.prepare('SELECT * FROM audit_trail WHERE id = last_insert_rowid()').get() as AuditTrailRecord
+}
+
+export function getAuditTrail(filters: AuditTrailFilters = {}, user?: AuthenticatedUser): AuditTrailRecord[] {
+  assertAdmin(user)
+  const database = connectDatabase()
+  const conditions: string[] = []
+  const params: Record<string, string> = {}
+
+  if (filters.user?.trim()) {
+    conditions.push('username = @username')
+    params.username = filters.user.trim()
+  }
+  if (filters.actionType) {
+    conditions.push('actionType = @actionType')
+    params.actionType = filters.actionType
+  }
+  if (filters.startDate?.trim()) {
+    conditions.push('createdAt >= @startDate')
+    params.startDate = `${filters.startDate.trim()}T00:00:00.000Z`
+  }
+  if (filters.endDate?.trim()) {
+    conditions.push('createdAt <= @endDate')
+    params.endDate = `${filters.endDate.trim()}T23:59:59.999Z`
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  return database
+    .prepare(`SELECT * FROM audit_trail ${whereClause} ORDER BY createdAt DESC, id DESC LIMIT 500`)
+    .all(params) as AuditTrailRecord[]
+}
+
 
 function normalizeWorkspaceSettings(input: WorkspaceSettingsInput): WorkspaceSettingsInput {
   if (!['Daily', 'Weekly', 'Monthly'].includes(input.backupFrequency)) {
@@ -890,7 +979,13 @@ export function createRequirement(input: RequirementInput, user?: AuthenticatedU
       closedAt: requirement.status === 'Closed' ? new Date().toISOString() : ''
     }) as { lastInsertRowid: number | bigint }
 
-  return database.prepare('SELECT * FROM requirements WHERE id = ?').get(result.lastInsertRowid) as RequirementRecord
+  const createdRequirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(result.lastInsertRowid) as RequirementRecord
+  recordAuditEvent(database, 'Requirement Created', user, `Created requirement ${createdRequirement.reqId} · ${createdRequirement.roleTitle}.`, {
+    entityType: 'Requirement',
+    entityId: createdRequirement.id,
+    details: JSON.stringify({ status: createdRequirement.status, recruiterOwner: createdRequirement.recruiterOwner, assignedSourcer: createdRequirement.assignedSourcer })
+  })
+  return createdRequirement
 }
 
 export function updateRequirement(id: number, input: RequirementInput, user?: AuthenticatedUser): RequirementRecord {
@@ -929,8 +1024,35 @@ export function updateRequirement(id: number, input: RequirementInput, user?: Au
     })
 
   const updatedRequirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord
+  recordAuditEvent(database, 'Requirement Updated', user, `Updated requirement ${updatedRequirement.reqId} · ${updatedRequirement.roleTitle}.`, {
+    entityType: 'Requirement',
+    entityId: updatedRequirement.id,
+    details: JSON.stringify({ previousStatus: currentRequirement.status, status: updatedRequirement.status })
+  })
 
   return updatedRequirement
+}
+
+export function deleteRequirement(id: number, user?: AuthenticatedUser): boolean {
+  assertCanManageRequirements(user)
+  const database = connectDatabase()
+  const requirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord | undefined
+  if (!requirement) {
+    throw new Error('Requirement not found.')
+  }
+
+  const [accessibleRequirement] = filterByUser([requirement], user)
+  if (!accessibleRequirement) {
+    throw new Error('You do not have access to this requirement.')
+  }
+
+  database.prepare('DELETE FROM requirements WHERE id = ?').run(id)
+  recordAuditEvent(database, 'Requirement Deleted', user, `Deleted requirement ${requirement.reqId} · ${requirement.roleTitle}.`, {
+    entityType: 'Requirement',
+    entityId: id,
+    details: JSON.stringify({ status: requirement.status })
+  })
+  return true
 }
 
 
@@ -1065,7 +1187,13 @@ export function upsertRequirementIntake(requirementId: number, input: Requiremen
     )
     .run({ ...intake, requirementId, updatedAt })
 
-  return database.prepare('SELECT * FROM requirement_intake WHERE requirementId = ?').get(requirementId) as RequirementIntakeRecord
+  const savedIntake = database.prepare('SELECT * FROM requirement_intake WHERE requirementId = ?').get(requirementId) as RequirementIntakeRecord
+  const requirement = database.prepare('SELECT reqId, roleTitle FROM requirements WHERE id = ?').get(requirementId) as { reqId: string; roleTitle: string }
+  recordAuditEvent(database, 'Intake Updated', user, `Updated intake for ${requirement.reqId} · ${requirement.roleTitle}.`, {
+    entityType: 'Requirement',
+    entityId: requirementId
+  })
+  return savedIntake
 }
 
 function normalizeSearchStringInput(input: RequirementSearchStringInput): RequirementSearchStringInput {
@@ -1275,7 +1403,13 @@ export function createCandidate(input: CandidateInput, user?: AuthenticatedUser)
 
   insertCandidateStatusHistory(database, result.lastInsertRowid, '', candidate.status as CandidateStatus, user, candidate.statusChangeNotes as string)
 
-  return mapCandidateWithHistory(database, database.prepare('SELECT * FROM candidates WHERE id = ?').get(result.lastInsertRowid) as CandidateDatabaseRow)
+  const createdCandidate = mapCandidateWithHistory(database, database.prepare('SELECT * FROM candidates WHERE id = ?').get(result.lastInsertRowid) as CandidateDatabaseRow)
+  recordAuditEvent(database, 'Candidate Created', user, `Created candidate ${createdCandidate.name} for ${createdCandidate.requirementTitle}.`, {
+    entityType: 'Candidate',
+    entityId: createdCandidate.id,
+    details: JSON.stringify({ status: createdCandidate.status, requirementId: createdCandidate.requirementId })
+  })
+  return createdCandidate
 }
 
 export function updateCandidate(id: number, input: CandidateInput, user?: AuthenticatedUser): CandidateRecord {
@@ -1324,9 +1458,20 @@ export function updateCandidate(id: number, input: CandidateInput, user?: Authen
 
   if (currentCandidate.status !== candidate.status) {
     insertCandidateStatusHistory(database, id, currentCandidate.status, candidate.status as CandidateStatus, user, candidate.statusChangeNotes as string)
+    recordAuditEvent(database, 'Candidate Status Changed', user, `Changed ${currentCandidate.name}'s status from ${currentCandidate.status} to ${candidate.status}.`, {
+      entityType: 'Candidate',
+      entityId: id,
+      details: JSON.stringify({ oldStatus: currentCandidate.status, newStatus: candidate.status, notes: candidate.statusChangeNotes })
+    })
   }
 
-  return mapCandidateWithHistory(database, database.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as CandidateDatabaseRow)
+  const updatedCandidate = mapCandidateWithHistory(database, database.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as CandidateDatabaseRow)
+  recordAuditEvent(database, 'Candidate Updated', user, `Updated candidate ${updatedCandidate.name}.`, {
+    entityType: 'Candidate',
+    entityId: updatedCandidate.id,
+    details: JSON.stringify({ status: updatedCandidate.status, requirementId: updatedCandidate.requirementId })
+  })
+  return updatedCandidate
 }
 
 export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
@@ -1335,8 +1480,13 @@ export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
   }
 
   const database = connectDatabase()
-  assertCanAccessCandidate(database, id, user)
+  const candidate = assertCanAccessCandidate(database, id, user)
   database.prepare('DELETE FROM candidates WHERE id = ?').run(id)
+  recordAuditEvent(database, 'Candidate Deleted', user, `Deleted candidate ${candidate.name}.`, {
+    entityType: 'Candidate',
+    entityId: id,
+    details: JSON.stringify({ requirementId: candidate.requirementId, status: candidate.status })
+  })
   return true
 }
 
@@ -1497,12 +1647,30 @@ export function getBackupSettings(): BackupSettings & { localBackupFolder: strin
   return { ...settings, localBackupFolder: getDailyBackupDirectory() }
 }
 
-export async function runBackupNow(): Promise<BackupResult> {
-  return createBackup(connectDatabase(), 'Manual')
+export async function runBackupNow(user?: AuthenticatedUser): Promise<BackupResult> {
+  const database = connectDatabase()
+  const result = await createBackup(database, 'Manual')
+  if (result.success) {
+    recordAuditEvent(database, 'Backup Created', user, `Created backup at ${result.localBackupPath ?? result.lastBackupPath}.`, {
+      entityType: 'Backup',
+      entityId: result.localBackupPath ?? result.lastBackupPath,
+      details: JSON.stringify({ status: result.lastBackupStatus, oneDriveBackupPath: result.oneDriveBackupPath ?? '' })
+    })
+  }
+  return result
 }
 
 export async function runStartupBackup(): Promise<BackupResult | undefined> {
-  return createStartupBackupIfNeeded(connectDatabase())
+  const database = connectDatabase()
+  const result = await createStartupBackupIfNeeded(database)
+  if (result?.success) {
+    recordAuditEvent(database, 'Backup Created', undefined, `Created startup backup at ${result.localBackupPath ?? result.lastBackupPath}.`, {
+      entityType: 'Backup',
+      entityId: result.localBackupPath ?? result.lastBackupPath,
+      details: JSON.stringify({ status: result.lastBackupStatus, oneDriveBackupPath: result.oneDriveBackupPath ?? '' })
+    })
+  }
+  return result
 }
 
 export function updateOneDriveBackupFolder(folderPath: string): BackupSettings & { localBackupFolder: string } {
@@ -1510,10 +1678,18 @@ export function updateOneDriveBackupFolder(folderPath: string): BackupSettings &
   return { ...settings, localBackupFolder: getDailyBackupDirectory() }
 }
 
-export function restoreFromBackup(zipPath: string): BackupResult {
+export function restoreFromBackup(zipPath: string, user?: AuthenticatedUser): BackupResult {
   const database = connectDatabase()
   const result = restoreBackup(database, zipPath)
   db = undefined
+  if (result.success) {
+    const restoredDatabase = connectDatabase()
+    recordAuditEvent(restoredDatabase, 'Restore Performed', user, `Restored backup ${zipPath}.`, {
+      entityType: 'Backup',
+      entityId: zipPath,
+      details: JSON.stringify({ message: result.message })
+    })
+  }
   return result
 }
 

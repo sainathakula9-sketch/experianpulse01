@@ -5,6 +5,49 @@ export type UserRole = 'Admin' | 'Recruiter' | 'Sourcer'
 export type BackupFrequency = 'Daily' | 'Weekly' | 'Monthly'
 export type CandidateStatus = string
 
+export type AuditActionType =
+  | 'User Login'
+  | 'Requirement Created'
+  | 'Requirement Updated'
+  | 'Requirement Deleted'
+  | 'Intake Updated'
+  | 'Candidate Created'
+  | 'Candidate Updated'
+  | 'Candidate Deleted'
+  | 'Candidate Status Changed'
+  | 'Excel Export'
+  | 'Excel Import'
+  | 'Backup Created'
+  | 'Restore Performed'
+
+export interface AuditTrailRecord {
+  id: number
+  userId: number | null
+  username: string
+  userDisplayName: string
+  actionType: AuditActionType
+  entityType: string
+  entityId: string
+  summary: string
+  details: string
+  createdAt: string
+}
+
+export interface AuditTrailFilters {
+  user?: string
+  actionType?: AuditActionType | ''
+  startDate?: string
+  endDate?: string
+}
+
+export interface AuditTrailInput {
+  actionType: AuditActionType
+  entityType?: string
+  entityId?: string | number
+  summary: string
+  details?: string
+}
+
 export interface AuthenticatedUser {
   id: number
   username: string

@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, CalendarDays, ClipboardList, Copy, Download, FolderOpen, Pencil, PlusCircle, Search, Users, WandSparkles } from 'lucide-react'
+import { BriefcaseBusiness, CalendarDays, ClipboardList, Copy, Download, FolderOpen, Pencil, PlusCircle, Search, Users, Trash2, WandSparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { AuthenticatedUser, CandidateRecord, RequirementInput, RequirementIntakeInput, RequirementPriority, RequirementSearchStringInput, RequirementRecord, RequirementStatus, WorkMode } from '../../shared/types'
@@ -395,12 +395,34 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
     setCopiedSearchString(field)
   }
 
+  const deleteSelectedRequirement = async (requirement: RequirementRecord): Promise<void> => {
+    if (!window.confirm(`Delete ${requirement.reqId} · ${requirement.roleTitle}? This will also remove related candidates.`)) {
+      return
+    }
+
+    await window.experianPulse.deleteRequirement(requirement.id)
+    if (selectedRequirementId === requirement.id) {
+      setSelectedRequirementId(undefined)
+    }
+    if (editingRequirementId === requirement.id) {
+      resetForm()
+    }
+    onRequirementsChange()
+  }
+
   const exportSelectedRequirementSummary = (): void => {
     if (!selectedRequirement) {
       return
     }
 
     exportRequirementSummary(selectedRequirement, selectedCandidates)
+    window.experianPulse.recordAudit({
+      actionType: 'Excel Export',
+      entityType: 'Requirement',
+      entityId: selectedRequirement.id,
+      summary: `Exported requirement summary for ${selectedRequirement.reqId}.`,
+      details: JSON.stringify({ candidates: selectedCandidates.length, file: `${selectedRequirement.reqId}-summary.xlsx` })
+    }).catch(() => undefined)
   }
 
   return (
@@ -485,16 +507,28 @@ export function Requirements({ candidates, onRequirementsChange, requirements, u
                   <div className="mt-4 flex items-center justify-between">
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${priorityStyles[requirement.priority]}`}>{requirement.priority} priority</span>
                     {canManageRequirements && (
-                      <button
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-experian-slate"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          editRequirement(requirement)
-                        }}
-                        type="button"
-                      >
-                        <Pencil size={13} /> Edit
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-experian-slate"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            editRequirement(requirement)
+                          }}
+                          type="button"
+                        >
+                          <Pencil size={13} /> Edit
+                        </button>
+                        <button
+                          className="inline-flex items-center gap-1 rounded-full border border-rose-100 bg-white px-3 py-1 text-xs font-bold text-rose-600"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            deleteSelectedRequirement(requirement)
+                          }}
+                          type="button"
+                        >
+                          <Trash2 size={13} /> Delete
+                        </button>
+                      </div>
                     )}
                   </div>
                 </article>

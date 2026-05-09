@@ -1,4 +1,4 @@
-import { BarChart3, FileSpreadsheet, Gauge, LogOut, Settings, ShieldCheck, UserPlus } from 'lucide-react'
+import { BarChart3, FileSpreadsheet, Gauge, History, LogOut, Settings, ShieldCheck, UserPlus } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { AuthenticatedUser, UserRole } from '../../shared/types'
 import type { PageKey } from '../App'
@@ -8,6 +8,7 @@ const navigation: Array<{ key: PageKey; label: string; icon: typeof Gauge; roles
   { key: 'requirements', label: 'Requirements', icon: ShieldCheck, roles: ['Admin', 'Recruiter', 'Sourcer'] },
   { key: 'candidates', label: 'Candidates', icon: UserPlus, roles: ['Admin', 'Recruiter', 'Sourcer'] },
   { key: 'reports', label: 'Reports', icon: BarChart3, roles: ['Admin'] },
+  { key: 'audit', label: 'Audit Trail', icon: History, roles: ['Admin'] },
   { key: 'settings', label: 'Settings', icon: Settings, roles: ['Admin'] }
 ]
 

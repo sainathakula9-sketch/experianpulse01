@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { addCandidateStatus, addSourceChannel, authenticateUser, closeDatabase, connectDatabase, createCandidate, createRequirement, createUser, deleteCandidate, deleteCandidateStatus, deleteSourceChannel, deleteUser, getPulseSnapshot, restoreFromBackup, runBackupNow, runStartupBackup, updateCandidate, updateOneDriveBackupFolder, updateRequirement, updateUser, updateWorkspaceSettings, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
+import { addCandidateStatus, addSourceChannel, authenticateUser, closeDatabase, connectDatabase, createCandidate, createRequirement, createUser, deleteCandidate, deleteRequirement, deleteCandidateStatus, deleteSourceChannel, deleteUser, getAuditTrail, getPulseSnapshot, recordAuditAction, restoreFromBackup, runBackupNow, runStartupBackup, updateCandidate, updateOneDriveBackupFolder, updateRequirement, updateUser, updateWorkspaceSettings, upsertRequirementIntake, upsertRequirementSearchStrings } from './database'
 import { chooseBackupZip, chooseOneDriveBackupFolder, getDailyBackupDirectory } from './backup'
-import type { CandidateInput, RequirementInput, RequirementIntakeInput, RequirementSearchStringInput, UserManagementInput, WorkspaceSettingsInput } from '../shared/types'
+import type { AuditTrailFilters, AuditTrailInput, CandidateInput, RequirementInput, RequirementIntakeInput, RequirementSearchStringInput, UserManagementInput, WorkspaceSettingsInput } from '../shared/types'
 
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
 let currentUser: ReturnType<typeof authenticateUser>['user']
@@ -43,6 +43,8 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('pulse:getSnapshot', () => getPulseSnapshot(currentUser))
+  ipcMain.handle('audit:getTrail', (_event, filters: AuditTrailFilters) => getAuditTrail(filters, currentUser))
+  ipcMain.handle('audit:record', (_event, input: AuditTrailInput) => recordAuditAction(input, currentUser))
   ipcMain.handle('candidates:create', (_event, candidate: CandidateInput) => createCandidate(candidate, currentUser))
   ipcMain.handle('candidates:update', (_event, payload: { id: number; candidate: CandidateInput }) => updateCandidate(payload.id, payload.candidate, currentUser))
   ipcMain.handle('candidates:delete', (_event, id: number) => deleteCandidate(id, currentUser))
@@ -50,6 +52,7 @@ app.whenReady().then(() => {
   ipcMain.handle('requirements:update', (_event, payload: { id: number; requirement: RequirementInput }) =>
     updateRequirement(payload.id, payload.requirement, currentUser)
   )
+  ipcMain.handle('requirements:delete', (_event, id: number) => deleteRequirement(id, currentUser))
   ipcMain.handle('requirements:saveIntake', (_event, payload: { requirementId: number; intake: RequirementIntakeInput }) =>
     upsertRequirementIntake(payload.requirementId, payload.intake, currentUser)
   )
@@ -71,12 +74,12 @@ app.whenReady().then(() => {
     return { ...settings, localBackupFolder: getDailyBackupDirectory() }
   })
   ipcMain.handle('backup:setOneDriveFolder', (_event, folderPath: string) => updateOneDriveBackupFolder(folderPath))
-  ipcMain.handle('backup:runNow', () => runBackupNow())
+  ipcMain.handle('backup:runNow', () => runBackupNow(currentUser))
   ipcMain.handle('backup:chooseRestoreZip', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? undefined
     return chooseBackupZip(window)
   })
-  ipcMain.handle('backup:restore', (_event, zipPath: string) => restoreFromBackup(zipPath))
+  ipcMain.handle('backup:restore', (_event, zipPath: string) => restoreFromBackup(zipPath, currentUser))
   createWindow()
   runStartupBackup().catch((error) => console.error('Startup backup failed', error))
 
