@@ -12,6 +12,7 @@ const actionTypes: AuditActionType[] = [
   'Requirement Updated',
   'Requirement Deleted',
   'Intake Updated',
+  'Search Strings Updated',
   'Candidate Created',
   'Candidate Updated',
   'Candidate Deleted',
@@ -19,7 +20,13 @@ const actionTypes: AuditActionType[] = [
   'Excel Export',
   'Excel Import',
   'Backup Created',
-  'Restore Performed'
+  'Restore Performed',
+  'Settings Updated',
+  'User Created',
+  'User Updated',
+  'User Deleted',
+  'Source Channel Updated',
+  'Candidate Status Option Updated'
 ]
 
 function formatDateTime(value: string): string {

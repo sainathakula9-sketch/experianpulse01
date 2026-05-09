@@ -196,6 +196,36 @@ function cellToString(value: unknown): string {
   return String(value).trim()
 }
 
+function cellToDateString(value: unknown): string {
+  if (value === undefined || value === null || value === '') {
+    return ''
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10)
+  }
+
+  if (typeof value === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(value)
+    if (parsed) {
+      const date = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d))
+      return date.toISOString().slice(0, 10)
+    }
+  }
+
+  const textValue = cellToString(value)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(textValue)) {
+    return textValue
+  }
+
+  const parsedDate = new Date(textValue)
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return parsedDate.toISOString().slice(0, 10)
+  }
+
+  return textValue
+}
+
 function parseBoolean(value: unknown): boolean {
   const normalized = cellToString(value).toLowerCase()
   return ['yes', 'y', 'true', '1', 'serving'].includes(normalized)
@@ -207,9 +237,13 @@ function getRowValue(row: Record<string, unknown>, header: CandidateHeader): unk
   return matchingKey ? row[matchingKey] : ''
 }
 
+function isValidOptionalDate(value: string): boolean {
+  return !value || /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
 export async function parseCandidateImportFile(file: File, requirement: RequirementRecord): Promise<CandidateImportPreview> {
   const buffer = await file.arrayBuffer()
-  const workbook = XLSX.read(buffer, { type: 'array' })
+  const workbook = XLSX.read(buffer, { cellDates: true, type: 'array' })
   const worksheet = workbook.Sheets[workbook.SheetNames[0]]
   if (!worksheet) {
     return { rows: [], errors: ['The workbook does not contain any sheets.'] }
@@ -223,12 +257,20 @@ export async function parseCandidateImportFile(file: File, requirement: Requirem
     const rowNumber = index + 2
     const name = cellToString(getRowValue(row, 'Candidate Name'))
     const statusValue = cellToString(getRowValue(row, 'Status')) || 'New Profile'
+    const lastWorkingDay = cellToDateString(getRowValue(row, 'Last Working Day'))
+    const followUpDate = cellToDateString(getRowValue(row, 'Follow-up Date'))
 
     if (!name) {
       errors.push(`Row ${rowNumber}: Candidate Name is required.`)
     }
     if (!candidateStatuses.includes(statusValue as CandidateStatus)) {
       errors.push(`Row ${rowNumber}: Status must be one of: ${candidateStatuses.join(', ')}.`)
+    }
+    if (!isValidOptionalDate(lastWorkingDay)) {
+      errors.push(`Row ${rowNumber}: Last Working Day must be a valid date.`)
+    }
+    if (!isValidOptionalDate(followUpDate)) {
+      errors.push(`Row ${rowNumber}: Follow-up Date must be a valid date.`)
     }
 
     rows.push({
@@ -243,7 +285,7 @@ export async function parseCandidateImportFile(file: File, requirement: Requirem
       expectedCtc: cellToString(getRowValue(row, 'Expected CTC')),
       noticePeriod: cellToString(getRowValue(row, 'Notice Period')),
       servingNotice: parseBoolean(getRowValue(row, 'Serving Notice')),
-      lastWorkingDay: cellToString(getRowValue(row, 'Last Working Day')),
+      lastWorkingDay,
       primarySkills: cellToString(getRowValue(row, 'Primary Skills')),
       secondarySkills: cellToString(getRowValue(row, 'Secondary Skills')),
       sourceChannel: cellToString(getRowValue(row, 'Source Channel')),
@@ -254,7 +296,7 @@ export async function parseCandidateImportFile(file: File, requirement: Requirem
       recruiterName: cellToString(getRowValue(row, 'Recruiter Name')) || requirement.recruiterOwner,
       status: candidateStatuses.includes(statusValue as CandidateStatus) ? (statusValue as CandidateStatus) : 'New Profile',
       remarks: cellToString(getRowValue(row, 'Remarks')),
-      followUpDate: cellToString(getRowValue(row, 'Follow-up Date')),
+      followUpDate,
       statusChangeNotes: 'Imported from Excel'
     })
   })
