@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Experian Pulse placeholder icon</title>
+  <desc id="desc">A rounded blue-purple app tile with white EP initials and a pulse line.</desc>
+  <defs>
+    <linearGradient id="tile" x1="20" y1="30" x2="236" y2="226" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#204898" />
+      <stop offset="0.55" stop-color="#2c7ec4" />
+      <stop offset="1" stop-color="#8e45b8" />
+    </linearGradient>
+  </defs>
+  <rect x="18" y="18" width="220" height="220" rx="48" fill="url(#tile)" />
+  <path d="M52 142h34l16-28 24 58 20-30h58" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M74 62h68c22 0 36 14 36 34s-14 34-36 34H94v60H74V62Zm20 18v32h46c11 0 18-6 18-16s-7-16-18-16H94Z" fill="#ffffff" />
+  <path d="M168 70h52v18h-32v30h28v18h-28v34h34v18h-54V70Z" fill="#ffffff" opacity="0.94" />
+</svg>

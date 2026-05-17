@@ -67,13 +67,25 @@ Preview the production build locally:
 npm run preview
 ```
 
-Build a Windows NSIS installer:
+Build the Windows installer and portable executable:
 
 ```bash
 npm run build:win
 ```
 
-The installer artifact is configured to be written to `release/` with a name similar to `Experian Pulse-Setup-0.1.0.exe`.
+This runs the TypeScript checks, creates the Electron production bundle, and then asks `electron-builder` to generate both Windows targets. The generated artifacts are written to `release/`:
+
+- `Experian Pulse-Setup-0.1.0.exe` — NSIS setup installer.
+- `Experian Pulse-Portable-0.1.0.exe` — portable executable that can run without a full install.
+
+You can also build each Windows artifact separately:
+
+```bash
+npm run build:win:installer
+npm run build:win:portable
+```
+
+The Windows package uses a generated placeholder icon at `build/icon.ico`. The source placeholder is `build/icon.svg`, and `npm run icon:win` regenerates the ignored `.ico` file before Windows packaging. Replace the SVG/source artwork with a production icon before code signing or enterprise distribution.
 
 ## Project structure
 
@@ -88,6 +100,17 @@ The installer artifact is configured to be written to `release/` with a name sim
 ├── tailwind.config.js
 └── tsconfig*.json
 ```
+
+## Windows installation steps
+
+1. Build or obtain the latest `Experian Pulse-Setup-<version>.exe` from the `release/` folder.
+2. On Windows 10/11, double-click the setup `.exe`.
+3. If Windows SmartScreen appears for an unsigned local build, choose **More info** and then **Run anyway** only if you trust the build source.
+4. Select the installation directory when prompted, or accept the default per-user location.
+5. Keep the desktop and Start Menu shortcut options selected if you want shortcuts created automatically.
+6. Finish the installer and launch **Experian Pulse** from the final installer page, desktop shortcut, or Start Menu.
+
+For no-install validation, run `Experian Pulse-Portable-<version>.exe` from the `release/` folder. The portable executable still stores application data in the normal Electron user data location for the current Windows user.
 
 ## Data and backup behavior
 
