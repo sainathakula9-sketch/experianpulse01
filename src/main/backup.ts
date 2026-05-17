@@ -1,8 +1,8 @@
 import { app, dialog } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, extname, join, normalize } from 'node:path'
-import type Database from 'better-sqlite3'
+import { basename, dirname, extname, isAbsolute, join, normalize, relative } from 'node:path'
+import Database from 'better-sqlite3'
 
 export type BackupStatusLevel = 'Never Run' | 'Success' | 'Warning' | 'Failed' | 'Restored'
 
@@ -153,12 +153,18 @@ function createZip(entries: ZipEntry[]): Buffer {
   return Buffer.concat([...localParts, centralDirectory, endOfCentralDirectory])
 }
 
+function assertReadableRange(buffer: Buffer, offset: number, length: number, label: string): void {
+  if (offset < 0 || length < 0 || offset + length > buffer.length) {
+    throw new Error(`ZIP backup is incomplete or corrupted near ${label}.`)
+  }
+}
+
 function readZip(buffer: Buffer): Map<string, Buffer> {
   const entries = new Map<string, Buffer>()
   const eocdSignature = 0x06054b50
   let eocdOffset = -1
-  for (let index = buffer.length - 22; index >= 0; index -= 1) {
-    if (buffer.readUInt32LE(index) === eocdSignature) {
+  for (let index = Math.max(0, buffer.length - 22); index >= 0; index -= 1) {
+    if (index + 4 <= buffer.length && buffer.readUInt32LE(index) === eocdSignature) {
       eocdOffset = index
       break
     }
@@ -168,10 +174,13 @@ function readZip(buffer: Buffer): Map<string, Buffer> {
     throw new Error('Selected file is not a valid ZIP backup.')
   }
 
+  assertReadableRange(buffer, eocdOffset, 22, 'end of central directory')
   const entryCount = buffer.readUInt16LE(eocdOffset + 10)
   let centralOffset = buffer.readUInt32LE(eocdOffset + 16)
+  assertReadableRange(buffer, centralOffset, 0, 'central directory')
 
   for (let index = 0; index < entryCount; index += 1) {
+    assertReadableRange(buffer, centralOffset, 46, `central directory entry ${index + 1}`)
     if (buffer.readUInt32LE(centralOffset) !== 0x02014b50) {
       throw new Error('ZIP central directory is invalid.')
     }
@@ -181,21 +190,66 @@ function readZip(buffer: Buffer): Map<string, Buffer> {
       throw new Error('Only Experian Pulse stored ZIP backups can be restored.')
     }
 
+    const expectedChecksum = buffer.readUInt32LE(centralOffset + 16)
     const compressedSize = buffer.readUInt32LE(centralOffset + 20)
+    const uncompressedSize = buffer.readUInt32LE(centralOffset + 24)
+    if (compressedSize !== uncompressedSize) {
+      throw new Error('ZIP backup entry size metadata is inconsistent.')
+    }
+
     const fileNameLength = buffer.readUInt16LE(centralOffset + 28)
     const extraLength = buffer.readUInt16LE(centralOffset + 30)
     const commentLength = buffer.readUInt16LE(centralOffset + 32)
     const localOffset = buffer.readUInt32LE(centralOffset + 42)
+    assertReadableRange(buffer, centralOffset + 46, fileNameLength, `file name for entry ${index + 1}`)
     const name = buffer.subarray(centralOffset + 46, centralOffset + 46 + fileNameLength).toString('utf8')
+
+    assertReadableRange(buffer, localOffset, 30, `local header for ${name}`)
+    if (buffer.readUInt32LE(localOffset) !== 0x04034b50) {
+      throw new Error(`ZIP local file header is invalid for ${name}.`)
+    }
+
+    const localCompressionMethod = buffer.readUInt16LE(localOffset + 8)
+    if (localCompressionMethod !== compressionMethod) {
+      throw new Error(`ZIP local file header metadata does not match for ${name}.`)
+    }
 
     const localFileNameLength = buffer.readUInt16LE(localOffset + 26)
     const localExtraLength = buffer.readUInt16LE(localOffset + 28)
     const dataOffset = localOffset + 30 + localFileNameLength + localExtraLength
-    entries.set(name, buffer.subarray(dataOffset, dataOffset + compressedSize))
+    assertReadableRange(buffer, dataOffset, compressedSize, `data for ${name}`)
+    const data = buffer.subarray(dataOffset, dataOffset + compressedSize)
+    if (crc32(data) !== expectedChecksum) {
+      throw new Error(`ZIP backup checksum validation failed for ${name}.`)
+    }
+
+    entries.set(name, data)
     centralOffset += 46 + fileNameLength + extraLength + commentLength
   }
 
   return entries
+}
+
+export function validateBackupFile(zipPath: string): { valid: boolean; message: string; entries: string[] } {
+  if (!zipPath || !existsSync(zipPath)) {
+    return { valid: false, message: 'Backup ZIP was not found.', entries: [] }
+  }
+
+  try {
+    const entries = readZip(readFileSync(zipPath))
+    if (!entries.has('backup-manifest.json')) {
+      throw new Error('Backup ZIP does not contain a manifest.')
+    }
+    if (!entries.has('database/experian-pulse.sqlite')) {
+      throw new Error('Backup ZIP does not contain an Experian Pulse database.')
+    }
+
+    JSON.parse(entries.get('backup-manifest.json')!.toString('utf8'))
+    return { valid: true, message: 'Backup ZIP integrity checks passed.', entries: Array.from(entries.keys()).sort() }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Backup ZIP integrity checks failed.'
+    return { valid: false, message, entries: [] }
+  }
 }
 
 function getBackupSettings(database: Database.Database): BackupSettings {
@@ -353,8 +407,23 @@ export async function createStartupBackupIfNeeded(database: Database.Database): 
 function assertSafeRestoreTarget(targetPath: string): void {
   const normalizedTarget = normalize(targetPath)
   const dataDirectory = normalize(join(getUserDataPath(), 'data'))
-  if (!normalizedTarget.startsWith(dataDirectory)) {
+  const relativeTarget = relative(dataDirectory, normalizedTarget)
+  if (relativeTarget === '' || relativeTarget.startsWith('..') || isAbsolute(relativeTarget)) {
     throw new Error('Restore target is outside the application data directory.')
+  }
+}
+
+function validateSqliteDatabaseFile(databasePath: string): void {
+  const database = new Database(databasePath)
+  try {
+    const result = database.pragma('quick_check') as Array<{ quick_check?: string } | string>
+    const firstResult = result[0]
+    const quickCheck = typeof firstResult === 'string' ? firstResult : firstResult?.quick_check
+    if (!Array.isArray(result) || quickCheck !== 'ok') {
+      throw new Error('Restored database failed SQLite integrity checks.')
+    }
+  } finally {
+    database.close()
   }
 }
 
@@ -380,7 +449,18 @@ export function restoreBackup(database: Database.Database, zipPath: string): Bac
     return { ...currentSettings, success: false, message: 'No backup ZIP selected.' }
   }
 
+  if (!existsSync(zipPath)) {
+    return { ...currentSettings, success: false, message: 'Backup ZIP was not found.' }
+  }
+
+  let temporaryRestorePath = ''
+
   try {
+    const integrity = validateBackupFile(zipPath)
+    if (!integrity.valid) {
+      throw new Error(integrity.message)
+    }
+
     const entries = readZip(readFileSync(zipPath))
     const databaseEntry = entries.get('database/experian-pulse.sqlite')
     if (!databaseEntry) {
@@ -397,9 +477,11 @@ export function restoreBackup(database: Database.Database, zipPath: string): Bac
       copyFileSync(databasePath, restoreCheckpointPath)
     }
 
-    database.close()
-    const temporaryRestorePath = `${databasePath}.restore-${Date.now()}`
+    temporaryRestorePath = `${databasePath}.restore-${Date.now()}`
     writeFileSync(temporaryRestorePath, databaseEntry)
+    validateSqliteDatabaseFile(temporaryRestorePath)
+
+    database.close()
     renameSync(temporaryRestorePath, databasePath)
     ;['-wal', '-shm'].forEach((suffix) => rmSync(`${databasePath}${suffix}`, { force: true }))
 
@@ -412,6 +494,9 @@ export function restoreBackup(database: Database.Database, zipPath: string): Bac
       message: `Restored ${basename(zipPath)}. Restart the app to load the restored database.`
     }
   } catch (error) {
+    if (temporaryRestorePath) {
+      rmSync(temporaryRestorePath, { force: true })
+    }
     const message = error instanceof Error ? error.message : 'Restore failed.'
     return { ...currentSettings, success: false, message }
   }
