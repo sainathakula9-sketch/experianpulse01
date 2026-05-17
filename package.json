@@ -11,7 +11,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "build:win": "npm run build && electron-builder --win nsis",
-    "test:backup": "node scripts/backup-restore-test.mjs"
+    "test:backup": "node scripts/backup-restore-test.mjs",
+    "test:performance": "node scripts/performance-stress-test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",

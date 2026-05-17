@@ -92,6 +92,9 @@ function moveAsideDatabaseFiles(databasePath: string): void {
 function openDatabase(databasePath: string): Database.Database {
   const database = new Database(databasePath)
   database.pragma('journal_mode = WAL')
+  database.pragma('synchronous = NORMAL')
+  database.pragma('temp_store = MEMORY')
+  database.pragma('busy_timeout = 5000')
   database.pragma('foreign_keys = ON')
   initialiseSchema(database)
   seedMockData(database)
@@ -271,6 +274,18 @@ function initialiseSchema(database: Database.Database): void {
       details TEXT NOT NULL DEFAULT '',
       createdAt TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE INDEX IF NOT EXISTS idx_requirements_recruiter_owner ON requirements(recruiterOwner);
+    CREATE INDEX IF NOT EXISTS idx_requirements_assigned_sourcer ON requirements(assignedSourcer);
+    CREATE INDEX IF NOT EXISTS idx_requirements_status_target_date ON requirements(status, targetClosureDate);
+    CREATE INDEX IF NOT EXISTS idx_requirements_priority_status ON requirements(priority, status);
+
+    CREATE INDEX IF NOT EXISTS idx_candidates_requirement_id ON candidates(requirementId);
+    CREATE INDEX IF NOT EXISTS idx_candidates_assigned_recruiter_updated ON candidates(assignedRecruiter, updatedAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_candidates_assigned_sourcer_updated ON candidates(assignedSourcer, updatedAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status);
+    CREATE INDEX IF NOT EXISTS idx_candidates_filter_status_sourcer_source_location ON candidates(status, sourcerName, sourceChannel, location);
+    CREATE INDEX IF NOT EXISTS idx_candidate_status_history_candidate_changed ON candidate_status_history(candidateId, changedAt DESC, id DESC);
 
     CREATE INDEX IF NOT EXISTS idx_audit_trail_created_at ON audit_trail(createdAt DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_trail_username ON audit_trail(username);
@@ -883,6 +898,31 @@ function filterByUser<T extends { recruiterOwner?: string; assignedRecruiter?: s
   return items.filter((item) => item.assignedSourcer === user.username)
 }
 
+
+function buildRequirementAccessClause(user?: AuthenticatedUser): { where: string; params: Record<string, string> } {
+  if (!user || user.role === 'Admin') {
+    return { where: '', params: {} }
+  }
+
+  if (user.role === 'Recruiter') {
+    return { where: 'WHERE recruiterOwner = @username', params: { username: user.username } }
+  }
+
+  return { where: 'WHERE assignedSourcer = @username', params: { username: user.username } }
+}
+
+function buildCandidateAccessClause(user?: AuthenticatedUser): { where: string; params: Record<string, string> } {
+  if (!user || user.role === 'Admin') {
+    return { where: '', params: {} }
+  }
+
+  if (user.role === 'Recruiter') {
+    return { where: 'WHERE assignedRecruiter = @username', params: { username: user.username } }
+  }
+
+  return { where: 'WHERE assignedSourcer = @username', params: { username: user.username } }
+}
+
 function normalizeDateInput(value: string, label: string): string {
   const trimmedValue = value.trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
@@ -1092,13 +1132,33 @@ function normalizeIntakeInput(input: RequirementIntakeInput): RequirementIntakeI
   }
 }
 
+function buildPlaceholders(count: number): string {
+  return Array.from({ length: count }, () => '?').join(', ')
+}
+
+function chunkValues<T>(values: T[], chunkSize = 900): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize))
+  }
+  return chunks
+}
+
 function attachRequirementDetails(database: Database.Database, requirements: RequirementRecord[]): RequirementRecord[] {
   if (requirements.length === 0) {
     return requirements
   }
 
-  const intakeRows = database.prepare('SELECT * FROM requirement_intake').all() as RequirementIntakeRecord[]
-  const searchStringRows = database.prepare('SELECT * FROM requirement_search_strings').all() as RequirementSearchStringRecord[]
+  const requirementIds = requirements.map((requirement) => requirement.id)
+  const intakeRows: RequirementIntakeRecord[] = []
+  const searchStringRows: RequirementSearchStringRecord[] = []
+
+  chunkValues(requirementIds).forEach((ids) => {
+    const placeholders = buildPlaceholders(ids.length)
+    intakeRows.push(...(database.prepare(`SELECT * FROM requirement_intake WHERE requirementId IN (${placeholders})`).all(...ids) as RequirementIntakeRecord[]))
+    searchStringRows.push(...(database.prepare(`SELECT * FROM requirement_search_strings WHERE requirementId IN (${placeholders})`).all(...ids) as RequirementSearchStringRecord[]))
+  })
+
   const intakeByRequirementId = new Map(intakeRows.map((intake) => [intake.requirementId, intake]))
   const searchStringsByRequirementId = new Map(searchStringRows.map((searchStrings) => [searchStrings.requirementId, searchStrings]))
 
@@ -1374,6 +1434,33 @@ function getCandidateStatusHistory(database: Database.Database, candidateId: num
     .all(candidateId) as CandidateStatusHistoryRecord[]
 }
 
+function getCandidateStatusHistories(database: Database.Database, candidateIds: number[]): Map<number, CandidateStatusHistoryRecord[]> {
+  const historyByCandidateId = new Map<number, CandidateStatusHistoryRecord[]>()
+  if (candidateIds.length === 0) {
+    return historyByCandidateId
+  }
+
+  chunkValues(candidateIds).forEach((ids) => {
+    const placeholders = buildPlaceholders(ids.length)
+    const rows = database
+      .prepare(`SELECT * FROM candidate_status_history WHERE candidateId IN (${placeholders}) ORDER BY candidateId ASC, changedAt DESC, id DESC`)
+      .all(...ids) as CandidateStatusHistoryRecord[]
+
+    rows.forEach((history) => {
+      const candidateHistory = historyByCandidateId.get(history.candidateId) ?? []
+      candidateHistory.push(history)
+      historyByCandidateId.set(history.candidateId, candidateHistory)
+    })
+  })
+
+  return historyByCandidateId
+}
+
+function mapCandidatesWithHistories(database: Database.Database, rows: CandidateDatabaseRow[]): CandidateRecord[] {
+  const histories = getCandidateStatusHistories(database, rows.map((row) => row.id))
+  return rows.map((row) => mapCandidateRow(row, histories.get(row.id) ?? []))
+}
+
 function mapCandidateWithHistory(database: Database.Database, row: CandidateDatabaseRow): CandidateRecord {
   return mapCandidateRow(row, getCandidateStatusHistory(database, row.id))
 }
@@ -1645,8 +1732,14 @@ function buildRecruiterMetrics(
 
 export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   const database = connectDatabase()
-  const allRequirements = attachRequirementDetails(database, database.prepare('SELECT * FROM requirements ORDER BY targetClosureDate ASC, reqId ASC').all() as RequirementRecord[])
-  const allCandidates = (database.prepare('SELECT * FROM candidates ORDER BY updatedAt DESC').all() as CandidateDatabaseRow[]).map((candidate) => mapCandidateWithHistory(database, candidate))
+  const requirementAccess = buildRequirementAccessClause(user)
+  const candidateAccess = buildCandidateAccessClause(user)
+  const allRequirements = attachRequirementDetails(
+    database,
+    database.prepare(`SELECT * FROM requirements ${requirementAccess.where} ORDER BY targetClosureDate ASC, reqId ASC`).all(requirementAccess.params) as RequirementRecord[]
+  )
+  const candidateRows = database.prepare(`SELECT * FROM candidates ${candidateAccess.where} ORDER BY updatedAt DESC`).all(candidateAccess.params) as CandidateDatabaseRow[]
+  const allCandidates = mapCandidatesWithHistories(database, candidateRows)
   const reports = database.prepare('SELECT * FROM reports ORDER BY updatedAt DESC').all() as ReportRecord[]
   const settingsRow = database.prepare('SELECT * FROM settings WHERE id = 1').get() as {
     organizationName: string
@@ -1663,12 +1756,9 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
   }
   const users = database.prepare('SELECT id, username, role, displayName FROM users ORDER BY username COLLATE NOCASE').all() as UserManagementRecord[]
 
-  const requirements = filterByUser(allRequirements, user)
-  const candidates = filterByUser(allCandidates, user)
-
   return {
-    requirements,
-    candidates,
+    requirements: allRequirements,
+    candidates: allCandidates,
     reports: user?.role === 'Admin' || !user ? reports : [],
     settings: {
       organizationName: settingsRow.organizationName,
@@ -1687,7 +1777,7 @@ export function getPulseSnapshot(user?: AuthenticatedUser): PulseSnapshot {
       sourceChannels: getSourceChannels(database),
       candidateStatuses: getCandidateStatuses(database)
     },
-    metrics: buildRecruiterMetrics(requirements, candidates, reports, user)
+    metrics: buildRecruiterMetrics(allRequirements, allCandidates, reports, user)
   }
 }
 
