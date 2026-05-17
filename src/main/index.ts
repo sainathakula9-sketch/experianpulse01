@@ -61,7 +61,12 @@ app.whenReady().then(() => {
     currentUser = undefined
     return true
   })
-  ipcMain.handle('pulse:getSnapshot', () => getPulseSnapshot(currentUser))
+  ipcMain.handle('pulse:getSnapshot', () => {
+    if (!currentUser) {
+      throw new Error('You must be logged in to open the workspace.')
+    }
+    return getPulseSnapshot(currentUser)
+  })
   ipcMain.handle('audit:getTrail', (_event, filters: AuditTrailFilters) => getAuditTrail(filters, currentUser))
   ipcMain.handle('audit:record', (_event, input: AuditTrailInput) => recordAuditAction(input, currentUser))
   ipcMain.handle('candidates:create', (_event, candidate: CandidateInput) => createCandidate(candidate, currentUser))
@@ -88,11 +93,14 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:addCandidateStatus', (_event, name: string) => addCandidateStatus(name, currentUser))
   ipcMain.handle('settings:deleteCandidateStatus', (_event, name: string) => deleteCandidateStatus(name, currentUser))
   ipcMain.handle('backup:chooseOneDriveFolder', async (event) => {
+    if (!currentUser || currentUser.role !== 'Admin') {
+      throw new Error('Only admins can manage backups.')
+    }
     const window = BrowserWindow.fromWebContents(event.sender) ?? undefined
     const settings = await chooseOneDriveBackupFolder(database, window)
     return { ...settings, localBackupFolder: getDailyBackupDirectory() }
   })
-  ipcMain.handle('backup:setOneDriveFolder', (_event, folderPath: string) => updateOneDriveBackupFolder(folderPath))
+  ipcMain.handle('backup:setOneDriveFolder', (_event, folderPath: string) => updateOneDriveBackupFolder(folderPath, currentUser))
   ipcMain.handle('backup:runNow', () => runBackupNow(currentUser))
   ipcMain.handle('backup:chooseRestoreZip', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? undefined

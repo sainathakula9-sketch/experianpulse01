@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import type { AuditActionType, AuditTrailFilters, AuditTrailInput, AuditTrailRecord, AuthenticatedUser, CandidateInput, CandidateRecord, CandidateStatus, CandidateStatusHistoryRecord, LoginResult, PulseSnapshot, ReportRecord, RequirementInput, RequirementIntakeInput, RequirementIntakeRecord, RequirementRecord, RequirementSearchStringInput, RequirementSearchStringRecord, UserManagementInput, UserManagementRecord, UserRole, WorkspaceSettingsInput } from '../shared/types'
-import { createHash } from 'node:crypto'
+import { createHash, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createBackup, createStartupBackupIfNeeded, getDailyBackupDirectory, restoreBackup, setOneDriveBackupFolder, type BackupResult, type BackupSettings } from './backup'
@@ -9,7 +9,10 @@ import { buildRecruitmentCandidates, buildRecruitmentRequirements, recruitmentSo
 
 let db: Database.Database | undefined
 
-const passwordSalt = 'experian-pulse-local-auth'
+const legacyPasswordSalt = 'experian-pulse-local-auth'
+const passwordHashIterations = 210_000
+const passwordHashKeyLength = 32
+const passwordHashDigest = 'sha256'
 
 export const defaultCandidateStatuses: CandidateStatus[] = [
   'New Profile',
@@ -101,8 +104,36 @@ function openDatabase(databasePath: string): Database.Database {
   return database
 }
 
+function hashLegacyPassword(password: string): string {
+  return createHash('sha256').update(`${legacyPasswordSalt}:${password}`).digest('hex')
+}
+
 function hashPassword(password: string): string {
-  return createHash('sha256').update(`${passwordSalt}:${password}`).digest('hex')
+  const salt = randomBytes(16).toString('hex')
+  const hash = pbkdf2Sync(password, salt, passwordHashIterations, passwordHashKeyLength, passwordHashDigest).toString('hex')
+  return `pbkdf2$${passwordHashIterations}$${salt}$${hash}`
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  if (storedHash.startsWith('pbkdf2$')) {
+    const [, iterationsValue, salt, expectedHash] = storedHash.split('$')
+    const iterations = Number(iterationsValue)
+    if (!Number.isSafeInteger(iterations) || iterations <= 0 || !salt || !expectedHash) {
+      return false
+    }
+
+    const actualHash = pbkdf2Sync(password, salt, iterations, passwordHashKeyLength, passwordHashDigest)
+    const expectedHashBuffer = Buffer.from(expectedHash, 'hex')
+    return actualHash.length === expectedHashBuffer.length && timingSafeEqual(actualHash, expectedHashBuffer)
+  }
+
+  const actualLegacyHash = Buffer.from(hashLegacyPassword(password), 'hex')
+  const expectedLegacyHash = Buffer.from(storedHash, 'hex')
+  return actualLegacyHash.length === expectedLegacyHash.length && timingSafeEqual(actualLegacyHash, expectedLegacyHash)
+}
+
+function isLegacyPasswordHash(storedHash: string): boolean {
+  return !storedHash.startsWith('pbkdf2$')
 }
 
 export function connectDatabase(): Database.Database {
@@ -515,12 +546,8 @@ function seedMissingCandidateStatusHistory(database: Database.Database): void {
 
 function seedMockData(database: Database.Database): void {
   const insertUser = database.prepare(`
-    INSERT INTO users (username, passwordHash, role, displayName)
+    INSERT OR IGNORE INTO users (username, passwordHash, role, displayName)
     VALUES (@username, @passwordHash, @role, @displayName)
-    ON CONFLICT(username) DO UPDATE SET
-      passwordHash = excluded.passwordHash,
-      role = excluded.role,
-      displayName = excluded.displayName
   `)
   defaultUsers.forEach((user) => {
     insertUser.run({ ...user, passwordHash: hashPassword(user.password) })
@@ -618,14 +645,23 @@ function seedMockData(database: Database.Database): void {
 export function authenticateUser(username: string, password: string): LoginResult {
   const database = connectDatabase()
   const normalizedUsername = username.trim().toLowerCase()
-  const user = database
-    .prepare('SELECT id, username, role, displayName FROM users WHERE username = @username AND passwordHash = @passwordHash')
-    .get({ username: normalizedUsername, passwordHash: hashPassword(password) }) as AuthenticatedUser | undefined
+  const row = database
+    .prepare('SELECT id, username, passwordHash, role, displayName FROM users WHERE username = @username')
+    .get({ username: normalizedUsername }) as (AuthenticatedUser & { passwordHash: string }) | undefined
 
-  if (!user) {
+  if (!row || !verifyPassword(password, row.passwordHash)) {
+    recordAuditEvent(database, 'Failed Login', undefined, `Failed login attempt for ${normalizedUsername || 'unknown user'}.`, {
+      entityType: 'User',
+      entityId: normalizedUsername
+    })
     return { success: false, message: 'Invalid username or password.' }
   }
 
+  if (isLegacyPasswordHash(row.passwordHash)) {
+    database.prepare('UPDATE users SET passwordHash = @passwordHash WHERE id = @id').run({ id: row.id, passwordHash: hashPassword(password) })
+  }
+
+  const { passwordHash: _passwordHash, ...user } = row
   recordAuditEvent(database, 'User Login', user, `${user.displayName} signed in.`, { entityType: 'User', entityId: user.id })
   return { success: true, user }
 }
@@ -721,6 +757,12 @@ function normalizeWorkspaceSettings(input: WorkspaceSettingsInput): WorkspaceSet
   }
 }
 
+function assertPasswordMeetsPolicy(password: string): void {
+  if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    throw new Error('Passwords must be at least 8 characters and include a letter and a number.')
+  }
+}
+
 function normalizeUserInput(input: UserManagementInput): UserManagementInput {
   const username = input.username.trim().toLowerCase()
   if (!username) {
@@ -774,6 +816,7 @@ export function createUser(input: UserManagementInput, user?: AuthenticatedUser)
   if (!nextUser.password) {
     throw new Error('Password is required when creating a user.')
   }
+  assertPasswordMeetsPolicy(nextUser.password)
 
   database
     .prepare('INSERT INTO users (username, passwordHash, role, displayName) VALUES (@username, @passwordHash, @role, @displayName)')
@@ -795,7 +838,16 @@ export function updateUser(id: number, input: UserManagementInput, user?: Authen
     throw new Error('User not found.')
   }
 
+  const adminCount = database.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'Admin'").get() as { count: number }
+  if (existingUser.role === 'Admin' && nextUser.role !== 'Admin' && adminCount.count <= 1) {
+    throw new Error('At least one admin user is required.')
+  }
+  if (user?.id === id && existingUser.role === 'Admin' && nextUser.role !== 'Admin') {
+    throw new Error('Admins cannot remove their own admin role while signed in.')
+  }
+
   if (nextUser.password) {
+    assertPasswordMeetsPolicy(nextUser.password)
     database
       .prepare('UPDATE users SET username = @username, passwordHash = @passwordHash, role = @role, displayName = @displayName WHERE id = @id')
       .run({ ...nextUser, id, passwordHash: hashPassword(nextUser.password) })
@@ -1048,6 +1100,10 @@ export function updateRequirement(id: number, input: RequirementInput, user?: Au
   const currentRequirement = database.prepare('SELECT * FROM requirements WHERE id = ?').get(id) as RequirementRecord | undefined
   if (!currentRequirement) {
     throw new Error('Requirement not found.')
+  }
+  const [accessibleRequirement] = filterByUser([currentRequirement], user)
+  if (!accessibleRequirement) {
+    throw new Error('You do not have access to this requirement.')
   }
 
   database
@@ -1788,6 +1844,7 @@ export function getBackupSettings(): BackupSettings & { localBackupFolder: strin
 }
 
 export async function runBackupNow(user?: AuthenticatedUser): Promise<BackupResult> {
+  assertAdmin(user)
   const database = connectDatabase()
   const result = await createBackup(database, 'Manual')
   if (result.success) {
@@ -1813,12 +1870,14 @@ export async function runStartupBackup(): Promise<BackupResult | undefined> {
   return result
 }
 
-export function updateOneDriveBackupFolder(folderPath: string): BackupSettings & { localBackupFolder: string } {
+export function updateOneDriveBackupFolder(folderPath: string, user?: AuthenticatedUser): BackupSettings & { localBackupFolder: string } {
+  assertAdmin(user)
   const settings = setOneDriveBackupFolder(connectDatabase(), folderPath)
   return { ...settings, localBackupFolder: getDailyBackupDirectory() }
 }
 
 export function restoreFromBackup(zipPath: string, user?: AuthenticatedUser): BackupResult {
+  assertAdmin(user)
   const database = connectDatabase()
   const result = restoreBackup(database, zipPath)
   db = undefined
