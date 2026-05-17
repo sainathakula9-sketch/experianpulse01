@@ -39,11 +39,13 @@ Experian Pulse is a local-first Electron, React, TypeScript, and SQLite desktop 
 
 4. Sign in with one of the seeded local accounts:
 
-   | Role | Username | Password |
-   | --- | --- | --- |
-   | Admin | `admin` | `admin123` |
-   | Recruiter | `recruiter` | `recruiter123` |
-   | Sourcer | `sourcer` | `sourcer123` |
+   | Role | Username | Password | Notes |
+   | --- | --- | --- | --- |
+   | Admin | `admin` | `admin123` | Full access to all seeded recruitment data. |
+   | Recruiter | `recruiter1` through `recruiter5` | `recruiter123` | Five recruiter workspaces with owned requirements and candidates. |
+   | Sourcer | `sourcer1` through `sourcer3` | `sourcer123` | Three sourcer workspaces with assigned sourcing pipelines. |
+
+   Fresh SQLite workspaces are populated with a realistic Experian Pulse recruitment demo set: 15 requirements, 250 candidates, 5 recruiters, 3 sourcers, varied statuses, offer drops, joined candidates, source channels, business units, and locations.
 
 ## Common commands
 

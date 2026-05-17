@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createBackup, createStartupBackupIfNeeded, getDailyBackupDirectory, restoreBackup, setOneDriveBackupFolder, type BackupResult, type BackupSettings } from './backup'
+import { buildRecruitmentCandidates, buildRecruitmentRequirements, recruitmentSourceChannels, recruitmentUsers, type SeedCandidate } from './recruitmentSeedData'
 
 let db: Database.Database | undefined
 
@@ -31,7 +32,7 @@ export const defaultCandidateStatuses: CandidateStatus[] = [
   'Joined'
 ]
 
-const defaultSourceChannels = ['LinkedIn', 'Referral', 'GitHub', 'Naukri', 'Indeed', 'Agency', 'Career Site']
+const defaultSourceChannels = recruitmentSourceChannels
 
 const defaultWorkspaceSettings = {
   organizationName: 'Experian Talent Acquisition',
@@ -43,152 +44,10 @@ const defaultWorkspaceSettings = {
   defaultLocation: 'United States'
 }
 
-const defaultUsers: Array<{ username: string; password: string; role: UserRole; displayName: string }> = [
-  { username: 'admin', password: 'admin123', role: 'Admin', displayName: 'Pulse Admin' },
-  { username: 'recruiter', password: 'recruiter123', role: 'Recruiter', displayName: 'Recruiter User' },
-  { username: 'sourcer', password: 'sourcer123', role: 'Sourcer', displayName: 'Sourcer User' }
-]
+const defaultUsers = recruitmentUsers
 
-const mockRequirements: RequirementInput[] = [
-  {
-    reqId: 'REQ-2026-001',
-    roleTitle: 'Senior Risk Analyst',
-    businessUnit: 'Enterprise Risk',
-    hiringManager: 'Priya Raman',
-    grade: 'G7',
-    location: 'Costa Mesa, CA',
-    workMode: 'Hybrid',
-    budgetRange: '$120k - $145k',
-    priority: 'High',
-    targetClosureDate: '2026-06-15',
-    recruiterOwner: 'recruiter',
-    assignedSourcer: 'sourcer',
-    status: 'Open'
-  },
-  {
-    reqId: 'REQ-2026-002',
-    roleTitle: 'Procurement Controls Lead',
-    businessUnit: 'Procurement',
-    hiringManager: 'Marcus Lee',
-    grade: 'G6',
-    location: 'Allen, TX',
-    workMode: 'Remote',
-    budgetRange: '$105k - $128k',
-    priority: 'Critical',
-    targetClosureDate: '2026-05-28',
-    recruiterOwner: 'recruiter',
-    assignedSourcer: 'sourcer',
-    status: 'Open'
-  },
-  {
-    reqId: 'REQ-2026-003',
-    roleTitle: 'Data Retention Specialist',
-    businessUnit: 'Consumer Services',
-    hiringManager: 'Elena Brooks',
-    grade: 'G5',
-    location: 'New York, NY',
-    workMode: 'Onsite',
-    budgetRange: '$88k - $102k',
-    priority: 'Medium',
-    targetClosureDate: '2026-05-03',
-    recruiterOwner: 'admin',
-    assignedSourcer: 'admin',
-    status: 'Closed'
-  },
-  {
-    reqId: 'REQ-2026-004',
-    roleTitle: 'Incident Response Manager',
-    businessUnit: 'Security Operations',
-    hiringManager: 'Noah Patel',
-    grade: 'G8',
-    location: 'Schaumburg, IL',
-    workMode: 'Hybrid',
-    budgetRange: '$140k - $165k',
-    priority: 'High',
-    targetClosureDate: '2026-07-02',
-    recruiterOwner: 'admin',
-    assignedSourcer: 'sourcer',
-    status: 'On Hold'
-  }
-]
-
-const mockCandidates: CandidateInput[] = [
-  {
-    name: 'Avery Johnson',
-    requirementId: 1,
-    currentCompany: 'TransUnion',
-    currentTitle: 'Senior Risk Analyst',
-    totalExperience: '8 years',
-    relevantExperience: '6 years',
-    location: 'Costa Mesa, CA',
-    currentCtc: '$118k',
-    expectedCtc: '$135k',
-    noticePeriod: '30 days',
-    servingNotice: false,
-    lastWorkingDay: '',
-    primarySkills: 'Risk analytics, SQL, governance',
-    secondarySkills: 'Tableau, Python',
-    sourceChannel: 'LinkedIn',
-    linkedinUrl: 'https://linkedin.com/in/avery-johnson',
-    githubUrl: '',
-    resumeFilePath: 'resumes/avery-johnson.pdf',
-    sourcerName: 'sourcer',
-    recruiterName: 'recruiter',
-    status: 'Screen Shortlisted',
-    remarks: 'Strong risk controls background.',
-    followUpDate: '2026-05-12'
-  },
-  {
-    name: 'Morgan Smith',
-    requirementId: 2,
-    currentCompany: 'Capital One',
-    currentTitle: 'Procurement Controls Manager',
-    totalExperience: '10 years',
-    relevantExperience: '7 years',
-    location: 'Allen, TX',
-    currentCtc: '$108k',
-    expectedCtc: '$125k',
-    noticePeriod: '45 days',
-    servingNotice: false,
-    lastWorkingDay: '',
-    primarySkills: 'Procurement controls, SOX, vendor risk',
-    secondarySkills: 'Coupa, audit',
-    sourceChannel: 'Referral',
-    linkedinUrl: 'https://linkedin.com/in/morgan-smith',
-    githubUrl: '',
-    resumeFilePath: 'resumes/morgan-smith.pdf',
-    sourcerName: 'sourcer',
-    recruiterName: 'recruiter',
-    status: 'Contacted',
-    remarks: 'Requested JD and compensation range.',
-    followUpDate: '2026-05-10'
-  },
-  {
-    name: 'Riley Chen',
-    requirementId: 4,
-    currentCompany: 'Okta',
-    currentTitle: 'Incident Response Lead',
-    totalExperience: '9 years',
-    relevantExperience: '8 years',
-    location: 'Schaumburg, IL',
-    currentCtc: '$142k',
-    expectedCtc: '$162k',
-    noticePeriod: 'Immediate',
-    servingNotice: true,
-    lastWorkingDay: '2026-05-24',
-    primarySkills: 'Incident response, SIEM, threat hunting',
-    secondarySkills: 'Cloud security, forensics',
-    sourceChannel: 'GitHub',
-    linkedinUrl: 'https://linkedin.com/in/riley-chen',
-    githubUrl: 'https://github.com/rileychen',
-    resumeFilePath: 'resumes/riley-chen.pdf',
-    sourcerName: 'sourcer',
-    recruiterName: 'admin',
-    status: 'Interested',
-    remarks: 'Available for HM screen next week.',
-    followUpDate: '2026-05-11'
-  }
-]
+const mockRequirements = buildRecruitmentRequirements()
+const mockCandidates = buildRecruitmentCandidates(mockRequirements)
 
 const mockReports: Omit<ReportRecord, 'id'>[] = [
   {
@@ -658,11 +517,30 @@ function seedMockData(database: Database.Database): void {
       INSERT INTO requirements (reqId, roleTitle, businessUnit, hiringManager, grade, location, workMode, budgetRange, priority, targetClosureDate, recruiterOwner, assignedSourcer, status, createdAt, closedAt)
       VALUES (@reqId, @roleTitle, @businessUnit, @hiringManager, @grade, @location, @workMode, @budgetRange, @priority, @targetClosureDate, @recruiterOwner, @assignedSourcer, @status, @createdAt, @closedAt)
     `)
+    const insertIntake = database.prepare(`
+      INSERT INTO requirement_intake (
+        requirementId, roleSummary, whyRoleOpen, mustHaveSkills, goodToHaveSkills, primarySkills, secondarySkills,
+        targetCompanies, companiesToAvoid, minimumExperience, maximumExperience, salaryRange, noticePeriodPreference,
+        interviewProcess, diversityFocus, candidateSellingPoints, keyChallenges, hiringManagerExpectations, additionalNotes, updatedAt
+      ) VALUES (
+        @requirementId, @roleSummary, @whyRoleOpen, @mustHaveSkills, @goodToHaveSkills, @primarySkills, @secondarySkills,
+        @targetCompanies, @companiesToAvoid, @minimumExperience, @maximumExperience, @salaryRange, @noticePeriodPreference,
+        @interviewProcess, @diversityFocus, @candidateSellingPoints, @keyChallenges, @hiringManagerExpectations, @additionalNotes, @updatedAt
+      )
+    `)
+    const insertSearchStrings = database.prepare(`
+      INSERT INTO requirement_search_strings (
+        requirementId, linkedinBoolean, githubSearch, naukriKeywords, googleXray, diversitySourcing, updatedAt
+      ) VALUES (
+        @requirementId, @linkedinBoolean, @githubSearch, @naukriKeywords, @googleXray, @diversitySourcing, @updatedAt
+      )
+    `)
     const insertMany = database.transaction((requirements: typeof mockRequirements) => {
-      requirements.forEach((requirement, index) => {
-        const createdAt = new Date(Date.UTC(2026, 3, 1 + index * 8, 9, 0, 0)).toISOString()
-        const closedAt = requirement.status === 'Closed' ? new Date(Date.UTC(2026, 4, 5, 17, 0, 0)).toISOString() : ''
-        insertRequirement.run({ ...requirement, createdAt, closedAt })
+      requirements.forEach((requirement) => {
+        const result = insertRequirement.run(requirement) as { lastInsertRowid: number | bigint }
+        const requirementId = Number(result.lastInsertRowid)
+        insertIntake.run({ ...requirement.intake, requirementId, updatedAt: requirement.createdAt })
+        insertSearchStrings.run({ ...requirement.searchStrings, requirementId, updatedAt: requirement.createdAt })
       })
     })
     insertMany(mockRequirements)
@@ -681,8 +559,21 @@ function seedMockData(database: Database.Database): void {
         @linkedinUrl, @githubUrl, @resumeFilePath, @sourcerName, @recruiterName, @status, @stage, @remarks, @followUpDate, @updatedAt, @assignedRecruiter, @assignedSourcer
       )
     `)
+    const insertHistory = database.prepare(`
+      INSERT INTO candidate_status_history (candidateId, oldStatus, newStatus, changedByUser, changedAt, notes)
+      VALUES (@candidateId, @oldStatus, @newStatus, @changedByUser, @changedAt, @notes)
+    `)
+    const requirementsByReqId = new Map((database.prepare('SELECT id, reqId FROM requirements').all() as Array<{ id: number; reqId: string }>).map((requirement) => [requirement.reqId, requirement.id]))
     const insertMany = database.transaction((candidates: typeof mockCandidates) => {
-      candidates.forEach((candidate) => insertCandidate.run(prepareCandidateForStorage(database, candidate)))
+      candidates.forEach((candidate) => {
+        const requirementId = requirementsByReqId.get(candidate.requirementReqId)
+        if (!requirementId) {
+          throw new Error(`Missing seeded requirement for candidate ${candidate.name}.`)
+        }
+        const candidateForStorage = prepareSeedCandidateForStorage(database, candidate, requirementId)
+        const result = insertCandidate.run(candidateForStorage) as { lastInsertRowid: number | bigint }
+        candidate.statusHistory.forEach((history) => insertHistory.run({ ...history, candidateId: result.lastInsertRowid }))
+      })
     })
     insertMany(mockCandidates)
   }
@@ -1440,6 +1331,15 @@ function prepareCandidateForStorage(database: Database.Database, input: Candidat
     recruiterName: candidate.recruiterName || requirement.recruiterOwner,
     assignedRecruiter: requirement.recruiterOwner,
     assignedSourcer: requirement.assignedSourcer
+  }
+}
+
+function prepareSeedCandidateForStorage(database: Database.Database, seedCandidate: SeedCandidate, requirementId: number): Record<string, string | number> {
+  const { requirementReqId: _requirementReqId, updatedAt, statusHistory: _statusHistory, ...candidateInput } = seedCandidate
+  const candidate = prepareCandidateForStorage(database, { ...candidateInput, requirementId })
+  return {
+    ...candidate,
+    updatedAt
   }
 }
 
