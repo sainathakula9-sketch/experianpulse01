@@ -10,14 +10,16 @@
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "build:win": "npm run build && electron-builder --win nsis",
+    "build:win": "npm run build && npm run icon:win && electron-builder --win nsis portable",
     "test:backup": "node scripts/backup-restore-test.mjs",
-    "test:performance": "node scripts/performance-stress-test.mjs"
+    "test:performance": "node scripts/performance-stress-test.mjs",
+    "build:win:installer": "npm run build && npm run icon:win && electron-builder --win nsis",
+    "build:win:portable": "npm run build && npm run icon:win && electron-builder --win portable",
+    "icon:win": "node scripts/create-placeholder-icon.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "better-sqlite3": "^11.8.1",
-    "electron": "^35.0.0",
     "electron-vite": "^3.0.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
@@ -34,7 +36,8 @@
     "esbuild": "^0.25.12",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "electron": "^35.0.0"
   },
   "build": {
     "appId": "com.experian.pulse",
@@ -48,16 +51,27 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "portable"
       ],
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
-  }
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ]
+  },
+  "author": "Experian Pulse"
 }
