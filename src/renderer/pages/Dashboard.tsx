@@ -46,6 +46,8 @@ type ProductivityRow = {
   closedRoles: number
 }
 
+type CandidateFunnelStage = 'contacted' | 'interested' | 'screenShortlisted' | 'interviewsScheduled' | 'offersReleased' | 'offersAccepted' | 'joined' | 'offerDropped'
+
 const chartColors = ['#5f259f', '#00a3e0', '#d0006f', '#16a34a', '#f59e0b', '#6366f1', '#ef4444', '#64748b']
 
 const statusOrder: CandidateStatus[] = [
@@ -71,9 +73,77 @@ const statusOrder: CandidateStatus[] = [
 
 const requirementStatuses: RequirementStatus[] = ['Open', 'On Hold', 'Closed', 'Cancelled']
 
-const interviewStatuses: CandidateStatus[] = ['Interview 1 Scheduled', 'Interview 1 Selected', 'Interview 1 Rejected', 'Interview 2 Scheduled', 'Interview 2 Selected', 'Final Round', 'Offer Discussion', 'Offer Released', 'Offer Accepted', 'Offer Dropped', 'Joined']
-const offerStatuses: CandidateStatus[] = ['Offer Released', 'Offer Accepted', 'Offer Dropped', 'Joined']
-const conversionStatuses: CandidateStatus[] = ['Contacted', 'Interested', 'Screen Shortlisted', 'Interview 1 Scheduled', 'Interview 2 Scheduled', 'Offer Released', 'Offer Accepted', 'Joined']
+const funnelStageMinimums: Record<CandidateFunnelStage, CandidateStatus[]> = {
+  contacted: [
+    'Contacted',
+    'Interested',
+    'Not Interested',
+    'Screen Shortlisted',
+    'Screen Rejected',
+    'HM Shortlisted',
+    'Interview 1 Scheduled',
+    'Interview 1 Selected',
+    'Interview 1 Rejected',
+    'Interview 2 Scheduled',
+    'Interview 2 Selected',
+    'Final Round',
+    'Offer Discussion',
+    'Offer Released',
+    'Offer Accepted',
+    'Offer Dropped',
+    'Joined'
+  ],
+  interested: [
+    'Interested',
+    'Screen Shortlisted',
+    'Screen Rejected',
+    'HM Shortlisted',
+    'Interview 1 Scheduled',
+    'Interview 1 Selected',
+    'Interview 1 Rejected',
+    'Interview 2 Scheduled',
+    'Interview 2 Selected',
+    'Final Round',
+    'Offer Discussion',
+    'Offer Released',
+    'Offer Accepted',
+    'Offer Dropped',
+    'Joined'
+  ],
+  screenShortlisted: [
+    'Screen Shortlisted',
+    'Screen Rejected',
+    'HM Shortlisted',
+    'Interview 1 Scheduled',
+    'Interview 1 Selected',
+    'Interview 1 Rejected',
+    'Interview 2 Scheduled',
+    'Interview 2 Selected',
+    'Final Round',
+    'Offer Discussion',
+    'Offer Released',
+    'Offer Accepted',
+    'Offer Dropped',
+    'Joined'
+  ],
+  interviewsScheduled: [
+    'Interview 1 Scheduled',
+    'Interview 1 Selected',
+    'Interview 1 Rejected',
+    'Interview 2 Scheduled',
+    'Interview 2 Selected',
+    'Final Round',
+    'Offer Discussion',
+    'Offer Released',
+    'Offer Accepted',
+    'Offer Dropped',
+    'Joined'
+  ],
+  offersReleased: ['Offer Released', 'Offer Accepted', 'Offer Dropped', 'Joined'],
+  offersAccepted: ['Offer Accepted', 'Offer Dropped', 'Joined'],
+  joined: ['Joined'],
+  offerDropped: ['Offer Dropped']
+}
 
 function daysBetween(startIso: string, endDate = new Date()): number {
   const startDate = new Date(startIso)
@@ -146,8 +216,18 @@ function getCandidateRequirement(candidate: CandidateRecord, requirementsById: M
   return requirementsById.get(candidate.requirementId)
 }
 
-function countCandidatesAtOrBeyond(candidates: CandidateRecord[], statuses: CandidateStatus[]): number {
-  return candidates.filter((candidate) => statuses.includes(candidate.status)).length
+function hasReachedCandidateStage(candidate: CandidateRecord, stage: CandidateFunnelStage): boolean {
+  const qualifyingStatuses = funnelStageMinimums[stage]
+  return qualifyingStatuses.includes(candidate.status) || candidate.statusHistory.some((history) => qualifyingStatuses.includes(history.newStatus))
+}
+
+function countCandidatesAtOrBeyond(candidates: CandidateRecord[], stage: CandidateFunnelStage): number {
+  return candidates.filter((candidate) => hasReachedCandidateStage(candidate, stage)).length
+}
+
+function getCandidateStageDate(candidate: CandidateRecord, stage: CandidateFunnelStage): string {
+  const qualifyingStatuses = funnelStageMinimums[stage]
+  return candidate.statusHistory.find((history) => qualifyingStatuses.includes(history.newStatus))?.changedAt ?? (qualifyingStatuses.includes(candidate.status) ? candidate.updatedAt : '')
 }
 
 function calculateAverageDaysToClose(requirements: RequirementRecord[], candidates: CandidateRecord[]): number {
@@ -193,10 +273,10 @@ function buildProductivityRows(
     return {
       name: person,
       profiles: ownedCandidates.length,
-      interviews: countCandidatesAtOrBeyond(ownedCandidates, interviewStatuses),
-      offers: countCandidatesAtOrBeyond(ownedCandidates, offerStatuses),
-      joins: ownedCandidates.filter((candidate) => candidate.status === 'Joined').length,
-      offerDrops: ownedCandidates.filter((candidate) => candidate.status === 'Offer Dropped').length,
+      interviews: countCandidatesAtOrBeyond(ownedCandidates, 'interviewsScheduled'),
+      offers: countCandidatesAtOrBeyond(ownedCandidates, 'offersReleased'),
+      joins: countCandidatesAtOrBeyond(ownedCandidates, 'joined'),
+      offerDrops: countCandidatesAtOrBeyond(ownedCandidates, 'offerDropped'),
       openRoles: ownedRequirements.filter((requirement) => requirement.status === 'Open').length,
       closedRoles: ownedRequirements.filter((requirement) => requirement.status === 'Closed').length
     }
@@ -278,7 +358,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
   const isAdmin = user.role === 'Admin'
   const openRoles = filteredRequirements.filter((requirement) => requirement.status === 'Open').length
   const closedRoles = filteredRequirements.filter((requirement) => requirement.status === 'Closed').length
-  const offerDrops = filteredCandidates.filter((candidate) => candidate.status === 'Offer Dropped').length
+  const offerDrops = countCandidatesAtOrBeyond(filteredCandidates, 'offerDropped')
   const diversityPipelineCount = filteredCandidates.filter((candidate) => hasDiversitySignal(candidate, requirementsById.get(candidate.requirementId))).length
   const averageDaysToClose = calculateAverageDaysToClose(filteredRequirements, filteredCandidates)
 
@@ -286,8 +366,8 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
     { label: 'Total open roles', value: openRoles, accent: 'text-experian-blue' },
     { label: 'Total closed roles', value: closedRoles, accent: 'text-green-600' },
     { label: 'Profiles sourced', value: filteredCandidates.length, accent: 'text-experian-purple' },
-    { label: 'Interviews scheduled', value: countCandidatesAtOrBeyond(filteredCandidates, interviewStatuses), accent: 'text-sky-600' },
-    { label: 'Offers released', value: countCandidatesAtOrBeyond(filteredCandidates, offerStatuses), accent: 'text-amber-600' },
+    { label: 'Interviews scheduled', value: countCandidatesAtOrBeyond(filteredCandidates, 'interviewsScheduled'), accent: 'text-sky-600' },
+    { label: 'Offers released', value: countCandidatesAtOrBeyond(filteredCandidates, 'offersReleased'), accent: 'text-amber-600' },
     { label: 'Offer drops', value: offerDrops, accent: 'text-red-600' },
     { label: 'Diversity pipeline count', value: diversityPipelineCount, accent: 'text-experian-magenta' },
     { label: 'Average days to close', value: averageDaysToClose, accent: 'text-experian-ink' }
@@ -295,12 +375,13 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
 
   const candidateFunnel = [
     { name: 'Profiles sourced', value: filteredCandidates.length, fill: '#5f259f' },
-    { name: 'Contacted', value: filteredCandidates.filter((candidate) => conversionStatuses.includes(candidate.status)).length, fill: '#00a3e0' },
-    { name: 'Interested', value: filteredCandidates.filter((candidate) => ['Interested', 'Screen Shortlisted', 'HM Shortlisted', ...interviewStatuses].includes(candidate.status)).length, fill: '#d0006f' },
-    { name: 'Screen shortlisted', value: filteredCandidates.filter((candidate) => ['Screen Shortlisted', 'HM Shortlisted', ...interviewStatuses].includes(candidate.status)).length, fill: '#6366f1' },
-    { name: 'Interviews scheduled', value: countCandidatesAtOrBeyond(filteredCandidates, interviewStatuses), fill: '#0ea5e9' },
-    { name: 'Offers released', value: countCandidatesAtOrBeyond(filteredCandidates, offerStatuses), fill: '#f59e0b' },
-    { name: 'Joined', value: filteredCandidates.filter((candidate) => candidate.status === 'Joined').length, fill: '#0f766e' }
+    { name: 'Contacted', value: countCandidatesAtOrBeyond(filteredCandidates, 'contacted'), fill: '#00a3e0' },
+    { name: 'Interested', value: countCandidatesAtOrBeyond(filteredCandidates, 'interested'), fill: '#d0006f' },
+    { name: 'Screen shortlisted', value: countCandidatesAtOrBeyond(filteredCandidates, 'screenShortlisted'), fill: '#6366f1' },
+    { name: 'Interviews scheduled', value: countCandidatesAtOrBeyond(filteredCandidates, 'interviewsScheduled'), fill: '#0ea5e9' },
+    { name: 'Offers released', value: countCandidatesAtOrBeyond(filteredCandidates, 'offersReleased'), fill: '#f59e0b' },
+    { name: 'Offer accepted', value: countCandidatesAtOrBeyond(filteredCandidates, 'offersAccepted'), fill: '#84cc16' },
+    { name: 'Joined', value: countCandidatesAtOrBeyond(filteredCandidates, 'joined'), fill: '#0f766e' }
   ]
 
   const statusDistribution = candidateStatusOptions
@@ -331,10 +412,10 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
     .map(([name, candidates]) => ({
       name,
       profiles: candidates.length,
-      contacted: candidates.filter((candidate) => conversionStatuses.includes(candidate.status)).length,
-      offers: countCandidatesAtOrBeyond(candidates, offerStatuses),
-      joined: candidates.filter((candidate) => candidate.status === 'Joined').length,
-      conversion: candidates.length > 0 ? Math.round((candidates.filter((candidate) => candidate.status === 'Joined').length / candidates.length) * 100) : 0
+      contacted: countCandidatesAtOrBeyond(candidates, 'contacted'),
+      offers: countCandidatesAtOrBeyond(candidates, 'offersReleased'),
+      joined: countCandidatesAtOrBeyond(candidates, 'joined'),
+      conversion: candidates.length > 0 ? Math.round((countCandidatesAtOrBeyond(candidates, 'joined') / candidates.length) * 100) : 0
     }))
     .sort((first, second) => second.profiles - first.profiles)
 
@@ -350,9 +431,10 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
     .slice(0, 10)
 
   const offerDropTrend = filteredCandidates
-    .filter((candidate) => candidate.status === 'Offer Dropped')
-    .reduce<Record<string, number>>((trend, candidate) => {
-      const date = toDateInputValue(candidate.updatedAt || candidate.statusHistory[0]?.changedAt || '') || 'Unspecified'
+    .map((candidate) => getCandidateStageDate(candidate, 'offerDropped'))
+    .filter(Boolean)
+    .reduce<Record<string, number>>((trend, changedAt) => {
+      const date = toDateInputValue(changedAt) || 'Unspecified'
       trend[date] = (trend[date] ?? 0) + 1
       return trend
     }, {})
@@ -459,7 +541,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <article className="rounded-3xl bg-white p-6 shadow-sm">
           <h3 className="text-lg font-bold">Recruiter-wise productivity</h3>
-          <p className="mb-6 mt-1 text-sm text-experian-slate">Profiles, interviews, offers, joins, and role ownership by recruiter.</p>
+          <p className="mb-6 mt-1 text-sm text-experian-slate">Profiles, interviews, offers, joins, offer drops, and role ownership by recruiter.</p>
           <div className="h-80">
             {recruiterProductivity.some((row) => row.profiles > 0 || row.openRoles > 0 || row.closedRoles > 0) ? (
               <ResponsiveContainer>
@@ -473,6 +555,9 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
                   <Bar dataKey="interviews" fill="#00a3e0" name="Interviews" radius={[8, 8, 0, 0]} />
                   <Bar dataKey="offers" fill="#f59e0b" name="Offers" radius={[8, 8, 0, 0]} />
                   <Bar dataKey="joins" fill="#16a34a" name="Joins" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="offerDrops" fill="#ef4444" name="Offer drops" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="openRoles" fill="#38bdf8" name="Open roles" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="closedRoles" fill="#64748b" name="Closed roles" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -483,7 +568,7 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
 
         <article className="rounded-3xl bg-white p-6 shadow-sm">
           <h3 className="text-lg font-bold">Sourcer-wise productivity</h3>
-          <p className="mb-6 mt-1 text-sm text-experian-slate">Sourcing output and conversion progress by sourcer.</p>
+          <p className="mb-6 mt-1 text-sm text-experian-slate">Sourcing output, conversion progress, offer drops, and role ownership by sourcer.</p>
           <div className="h-80">
             {sourcerProductivity.some((row) => row.profiles > 0 || row.openRoles > 0 || row.closedRoles > 0) ? (
               <ResponsiveContainer>
@@ -497,6 +582,9 @@ export function Dashboard({ snapshot, user }: DashboardProps): JSX.Element {
                   <Bar dataKey="interviews" fill="#00a3e0" name="Interviews" radius={[8, 8, 0, 0]} />
                   <Bar dataKey="offers" fill="#f59e0b" name="Offers" radius={[8, 8, 0, 0]} />
                   <Bar dataKey="joins" fill="#16a34a" name="Joins" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="offerDrops" fill="#ef4444" name="Offer drops" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="openRoles" fill="#38bdf8" name="Open roles" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="closedRoles" fill="#64748b" name="Closed roles" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
