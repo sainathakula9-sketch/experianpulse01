@@ -7,6 +7,7 @@ export type CandidateStatus = string
 
 export type AuditActionType =
   | 'User Login'
+  | 'Failed Login'
   | 'Requirement Created'
   | 'Requirement Updated'
   | 'Requirement Deleted'

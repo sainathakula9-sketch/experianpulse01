@@ -244,7 +244,10 @@ export function validateBackupFile(zipPath: string): { valid: boolean; message: 
       throw new Error('Backup ZIP does not contain an Experian Pulse database.')
     }
 
-    JSON.parse(entries.get('backup-manifest.json')!.toString('utf8'))
+    const manifest = JSON.parse(entries.get('backup-manifest.json')!.toString('utf8')) as { appName?: string; databaseFile?: string }
+    if (manifest.appName !== 'Experian Pulse' || manifest.databaseFile !== 'database/experian-pulse.sqlite') {
+      throw new Error('Backup manifest does not match Experian Pulse backup metadata.')
+    }
     return { valid: true, message: 'Backup ZIP integrity checks passed.', entries: Array.from(entries.keys()).sort() }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Backup ZIP integrity checks failed.'
@@ -482,8 +485,8 @@ export function restoreBackup(database: Database.Database, zipPath: string): Bac
     validateSqliteDatabaseFile(temporaryRestorePath)
 
     database.close()
+    ;['', '-wal', '-shm'].forEach((suffix) => rmSync(`${databasePath}${suffix}`, { force: true }))
     renameSync(temporaryRestorePath, databasePath)
-    ;['-wal', '-shm'].forEach((suffix) => rmSync(`${databasePath}${suffix}`, { force: true }))
 
     return {
       ...currentSettings,
