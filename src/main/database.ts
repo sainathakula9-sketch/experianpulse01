@@ -1528,33 +1528,41 @@ export function deleteCandidate(id: number, user?: AuthenticatedUser): boolean {
 
 type RecruiterDashboardMetrics = PulseSnapshot['metrics']
 
-const funnelStageMinimums: Record<'contacted' | 'interested' | 'screenShortlisted' | 'interviewsScheduled' | 'offersReleased' | 'offersAccepted' | 'joined', CandidateStatus[]> = {
-  contacted: defaultCandidateStatuses.slice(defaultCandidateStatuses.indexOf('Contacted')),
+type CandidateFunnelStage = 'contacted' | 'interested' | 'screenShortlisted' | 'interviewsScheduled' | 'offersReleased' | 'offersAccepted' | 'joined' | 'offerDropped'
+
+const funnelStageMinimums: Record<CandidateFunnelStage, CandidateStatus[]> = {
+  contacted: defaultCandidateStatuses.filter((status) => status !== 'New Profile'),
   interested: [
     'Interested',
     'Screen Shortlisted',
+    'Screen Rejected',
     'HM Shortlisted',
     'Interview 1 Scheduled',
     'Interview 1 Selected',
+    'Interview 1 Rejected',
     'Interview 2 Scheduled',
     'Interview 2 Selected',
     'Final Round',
     'Offer Discussion',
     'Offer Released',
     'Offer Accepted',
+    'Offer Dropped',
     'Joined'
   ],
   screenShortlisted: [
     'Screen Shortlisted',
+    'Screen Rejected',
     'HM Shortlisted',
     'Interview 1 Scheduled',
     'Interview 1 Selected',
+    'Interview 1 Rejected',
     'Interview 2 Scheduled',
     'Interview 2 Selected',
     'Final Round',
     'Offer Discussion',
     'Offer Released',
     'Offer Accepted',
+    'Offer Dropped',
     'Joined'
   ],
   interviewsScheduled: [
@@ -1567,15 +1575,22 @@ const funnelStageMinimums: Record<'contacted' | 'interested' | 'screenShortliste
     'Offer Discussion',
     'Offer Released',
     'Offer Accepted',
+    'Offer Dropped',
     'Joined'
   ],
   offersReleased: ['Offer Released', 'Offer Accepted', 'Offer Dropped', 'Joined'],
-  offersAccepted: ['Offer Accepted', 'Joined'],
-  joined: ['Joined']
+  offersAccepted: ['Offer Accepted', 'Offer Dropped', 'Joined'],
+  joined: ['Joined'],
+  offerDropped: ['Offer Dropped']
 }
 
-function countCandidatesAtOrBeyond(candidates: CandidateRecord[], stage: keyof typeof funnelStageMinimums): number {
-  return candidates.filter((candidate) => funnelStageMinimums[stage].includes(candidate.status)).length
+function hasReachedCandidateStage(candidate: CandidateRecord, stage: CandidateFunnelStage): boolean {
+  const qualifyingStatuses = funnelStageMinimums[stage]
+  return qualifyingStatuses.includes(candidate.status) || candidate.statusHistory.some((history) => qualifyingStatuses.includes(history.newStatus))
+}
+
+function countCandidatesAtOrBeyond(candidates: CandidateRecord[], stage: CandidateFunnelStage): number {
+  return candidates.filter((candidate) => hasReachedCandidateStage(candidate, stage)).length
 }
 
 function calculateAverageDaysToClose(requirements: RequirementRecord[], candidates: CandidateRecord[]): number {
@@ -1623,7 +1638,7 @@ function buildRecruiterMetrics(
     offersReleased: countCandidatesAtOrBeyond(candidates, 'offersReleased'),
     offersAccepted: countCandidatesAtOrBeyond(candidates, 'offersAccepted'),
     joined: countCandidatesAtOrBeyond(candidates, 'joined'),
-    offerDrops: candidates.filter((candidate) => candidate.status === 'Offer Dropped').length,
+    offerDrops: countCandidatesAtOrBeyond(candidates, 'offerDropped'),
     averageDaysToClose: calculateAverageDaysToClose(requirements, candidates)
   }
 }
