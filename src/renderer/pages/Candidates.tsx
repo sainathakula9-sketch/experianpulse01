@@ -18,6 +18,8 @@ interface CandidatesProps {
   settings: SettingsRecord
 }
 
+const visibleCandidateLimit = 250
+
 const fallbackCandidateStatuses: CandidateStatus[] = [
   'New Profile',
   'Contacted',
@@ -182,6 +184,9 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
     () => requirements.find((requirement) => requirement.id === excelRequirementId) ?? requirements[0],
     [excelRequirementId, requirements]
   )
+
+  const visibleCandidates = useMemo(() => filteredCandidates.slice(0, visibleCandidateLimit), [filteredCandidates])
+  const hiddenCandidateCount = Math.max(0, filteredCandidates.length - visibleCandidates.length)
 
   const excelCandidates = useMemo(
     () => (excelRequirement ? candidates.filter((candidate) => candidate.requirementId === excelRequirement.id) : []),
@@ -352,7 +357,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
             <h3 className="text-xl font-bold">Candidate pipeline</h3>
             <p className="mt-1 text-sm text-experian-slate">Track candidates against requirement folders with SQLite-backed add, edit, delete, and filters.</p>
           </div>
-          <span className="rounded-full bg-experian-blue/10 px-3 py-1 text-xs font-bold text-experian-blue">{filteredCandidates.length} shown</span>
+          <span className="rounded-full bg-experian-blue/10 px-3 py-1 text-xs font-bold text-experian-blue">{filteredCandidates.length} matched · {visibleCandidates.length} rendered</span>
         </div>
 
         <div className="mb-5 grid gap-3 rounded-2xl bg-slate-50 p-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
@@ -411,6 +416,12 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
           </select>
         </div>
 
+        {hiddenCandidateCount > 0 && (
+          <p className="mb-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+            Showing the first {visibleCandidateLimit} matching candidates to keep filtering responsive. Narrow filters to inspect the remaining {hiddenCandidateCount}, or use Excel export for the full requirement dataset.
+          </p>
+        )}
+
         <div className="overflow-x-auto rounded-2xl border border-slate-100">
           <table className="min-w-full divide-y divide-slate-100 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-[0.12em] text-experian-slate">
@@ -432,7 +443,7 @@ export function Candidates({ candidates, onCandidatesChange, requirements, setti
                     No candidates match the current filters. Add a candidate or clear filters to expand the view.
                   </td>
                 </tr>
-              ) : filteredCandidates.map((candidate) => (
+              ) : visibleCandidates.map((candidate) => (
                 <tr key={candidate.id}>
                   <td className="px-4 py-4">
                     <p className="font-bold text-experian-ink">{candidate.name}</p>

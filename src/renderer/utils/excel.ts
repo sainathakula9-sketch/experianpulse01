@@ -61,7 +61,7 @@ export function writeEditableWorkbook(sheets: Array<{ name: string; rows: Record
     worksheet['!cols'] = keys.map((key) => ({ wch: Math.min(Math.max(key.length + 4, 16), 40) }))
     XLSX.utils.book_append_sheet(workbook, worksheet, name.slice(0, 31))
   })
-  XLSX.writeFile(workbook, fileName)
+  XLSX.writeFile(workbook, fileName, { bookSST: false, compression: true })
 }
 
 export function exportCandidatesForRequirement(requirement: RequirementRecord, candidates: CandidateRecord[]): void {
